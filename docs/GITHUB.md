@@ -14,12 +14,13 @@ private vulnerability reporting only work on **public** repositories.
 Organization **Settings**:
 
 1. **Authentication security**: tick **Require two-factor authentication for everyone in the organization**.
-   Members and outside collaborators without 2FA are removed, so make sure everyone has it first.
+   Members and outside collaborators without 2FA are removed, so make sure everyone has it first (still off
+   when checked on 2026-10-07).
 2. **Member privileges**:
-   - **Base permissions**: **Read**.
+   - **Base permissions**: **Read** (already set when checked on 2026-10-07).
    - **Repository creation**: allow **Private** only; untick **Public** (members may not create public
-     repositories; owners still can).
-   - **Repository forking**: untick **Allow forking of private repositories**.
+     repositories; owners still can). Still allowed when checked on 2026-10-07.
+   - **Repository forking**: **Allow forking of private repositories** stays unticked (already off).
    - **Pages creation**: untick public and private (nothing is published through Pages).
    - **Admin repository permissions**: untick **Allow members to delete or transfer repositories** and
      **Allow members to change repository visibilities**.
