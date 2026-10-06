@@ -1,0 +1,144 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Reusable JavaScript CI: pnpm install from the lockfile, license and SPDX checks, typecheck, tests and an
+# optional build. Used by tavrn-protocol, tavrn-crypto (npm package), tavrn-js and tavrn-web.
+#
+# Caller:
+#   jobs:
+#     js:
+#       if: ${{ vars.CI_ENABLED == 'true' }}
+#       uses: just-tavrn/.github/.github/workflows/js-ci.yml@main
+#       with:
+#         license-check: scripts/check-js-licenses.mjs
+#         build: pnpm --filter @tavrn/web build
+#       secrets:
+#         READ_TOKEN: ${{ secrets.TAVRN_READ_PAT }}
+#
+# pnpm comes from the "packageManager" field of the caller's package.json. While the repositories are
+# private, READ_TOKEN lets pnpm fetch git dependencies such as github:just-tavrn/tavrn-js#v0.1.0&path:sdk.
+name: JavaScript CI (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: Directory of the pnpm workspace.
+        type: string
+        default: "."
+      node-version:
+        description: Node.js version.
+        type: string
+        default: "24"
+      license-check:
+        description: Path of the JavaScript license check script (run with node), relative to the working directory; empty to skip.
+        type: string
+        default: scripts/check-js-licenses.mjs
+      spdx-check:
+        description: Path of the SPDX header check script, relative to the working directory; empty to skip.
+        type: string
+        default: scripts/check-spdx.sh
+      typecheck:
+        description: Typecheck command; empty to skip.
+        type: string
+        default: pnpm -r --if-present typecheck
+      test:
+        description: Test command; empty to skip.
+        type: string
+        default: pnpm -r --if-present test
+      build:
+        description: Build command run after the tests; empty to skip.
+        type: string
+        default: ""
+      pre-test:
+        description: Shell commands run after the install and before the checks (for example generating code).
+        type: string
+        default: ""
+      rust-wasm:
+        description: Install Rust with the wasm32-unknown-unknown target (and cache ~/.cargo, where the build script installs wasm-bindgen-cli) for packages that build WebAssembly in pre-test.
+        type: boolean
+        default: false
+      submodules:
+        description: Checkout submodules (false, true or recursive).
+        type: string
+        default: recursive
+    secrets:
+      READ_TOKEN:
+        description: Optional token with read access to the private just-tavrn repositories (submodules, git dependencies).
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  js:
+    name: JavaScript (install, typecheck, test)
+    if: ${{ vars.CI_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Access to private organization repositories
+        env:
+          READ_TOKEN: ${{ secrets.READ_TOKEN }}
+        working-directory: .
+        run: |
+          if [ -n "$READ_TOKEN" ]; then
+            git config --global url."https://x-access-token:${READ_TOKEN}@github.com/just-tavrn/".insteadOf "https://github.com/just-tavrn/"
+            git config --global --add url."https://x-access-token:${READ_TOKEN}@github.com/just-tavrn/".insteadOf "ssh://git@github.com/just-tavrn/"
+            git config --global --add url."https://x-access-token:${READ_TOKEN}@github.com/just-tavrn/".insteadOf "git@github.com:just-tavrn/"
+            echo "fetching just-tavrn repositories with READ_TOKEN"
+          fi
+      - uses: actions/checkout@v7
+        with:
+          submodules: ${{ inputs.submodules }}
+          token: ${{ secrets.READ_TOKEN || github.token }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        if: ${{ inputs.rust-wasm }}
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        if: ${{ inputs.rust-wasm }}
+        with:
+          workspaces: ${{ inputs.working-directory }}
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: ${{ inputs.working-directory }}/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: pnpm
+          cache-dependency-path: ${{ inputs.working-directory }}/pnpm-lock.yaml
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+      - name: Prepare
+        if: ${{ inputs.pre-test != '' }}
+        env:
+          PRE_TEST: ${{ inputs.pre-test }}
+        run: bash -euo pipefail -c "$PRE_TEST"
+      - name: SPDX headers
+        if: ${{ inputs.spdx-check != '' }}
+        env:
+          SCRIPT: ${{ inputs.spdx-check }}
+        run: bash "$SCRIPT"
+      - name: Dependency licenses
+        if: ${{ inputs.license-check != '' }}
+        env:
+          SCRIPT: ${{ inputs.license-check }}
+        run: node "$SCRIPT"
+      - name: Typecheck
+        if: ${{ inputs.typecheck != '' }}
+        env:
+          CMD: ${{ inputs.typecheck }}
+        run: bash -euo pipefail -c "$CMD"
+      - name: Test
+        if: ${{ inputs.test != '' }}
+        env:
+          CMD: ${{ inputs.test }}
+        run: bash -euo pipefail -c "$CMD"
+      - name: Build
+        if: ${{ inputs.build != '' }}
+        env:
+          CMD: ${{ inputs.build }}
+        run: bash -euo pipefail -c "$CMD"

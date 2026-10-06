@@ -1,0 +1,126 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Reusable container build and publish to the GitHub Container Registry (ghcr.io/just-tavrn/<image>).
+# The image gets BuildKit's SLSA provenance (mode=max) and an SBOM as attestations in the registry; there is
+# no cosign signing. Pushing happens only when the caller sets push: true AND the run is on main or a v* tag;
+# everything else (pull requests, branches) builds without pushing.
+#
+# Caller (tavrn-node, .github/workflows/release.yml):
+#   on:
+#     push:
+#       tags: ["v*"]
+#   permissions:
+#     contents: read
+#     packages: write
+#   jobs:
+#     image:
+#       if: ${{ vars.CI_ENABLED == 'true' }}
+#       uses: just-tavrn/.github/.github/workflows/docker-publish.yml@main
+#       with:
+#         dockerfile: deploy/Dockerfile
+#         image-name: tavrn-node
+#         push: true
+#       secrets:
+#         READ_TOKEN: ${{ secrets.TAVRN_READ_PAT }}
+name: Docker publish (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      dockerfile:
+        description: Path of the Dockerfile, relative to the repository root.
+        type: string
+        default: Dockerfile
+      context:
+        description: Build context.
+        type: string
+        default: "."
+      image-name:
+        description: Image name below ghcr.io/just-tavrn/ (for example tavrn-node).
+        type: string
+        required: true
+      platforms:
+        description: Target platforms, comma-separated.
+        type: string
+        default: linux/amd64
+      build-args:
+        description: Build arguments, KEY=value lines.
+        type: string
+        default: ""
+      push:
+        description: Push to ghcr.io (only on main and on v* tags).
+        type: boolean
+        default: false
+      submodules:
+        description: Checkout submodules (false, true or recursive).
+        type: string
+        default: recursive
+    secrets:
+      READ_TOKEN:
+        description: Optional token with read access to the private just-tavrn repositories (submodules; passed to the build as the secret "read_token").
+        required: false
+    outputs:
+      digest:
+        description: Digest of the built image.
+        value: ${{ jobs.image.outputs.digest }}
+      tags:
+        description: Tags of the built image.
+        value: ${{ jobs.image.outputs.tags }}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    name: Container image (${{ inputs.image-name }})
+    if: ${{ vars.CI_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      tags: ${{ steps.meta.outputs.tags }}
+    env:
+      DO_PUSH: ${{ inputs.push && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: ${{ inputs.submodules }}
+          token: ${{ secrets.READ_TOKEN || github.token }}
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v4
+      - name: Log in to ghcr.io
+        if: ${{ env.DO_PUSH == 'true' }}
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/just-tavrn/${{ inputs.image-name }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=edge,branch=main
+            type=sha,format=short
+            type=ref,event=pr
+          labels: |
+            org.opencontainers.image.vendor=tavrn
+      - id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          platforms: ${{ inputs.platforms }}
+          build-args: ${{ inputs.build-args }}
+          push: ${{ env.DO_PUSH == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          provenance: mode=max
+          sbom: true
+          # Only set when the caller passes READ_TOKEN (RUN --mount=type=secret,id=read_token in the Dockerfile).
+          secrets: ${{ secrets.READ_TOKEN != '' && format('read_token={0}', secrets.READ_TOKEN) || '' }}
+          cache-from: type=gha,scope=${{ inputs.image-name }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.image-name }}

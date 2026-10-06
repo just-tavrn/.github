@@ -1,0 +1,76 @@
+name: Bug report
+description: Something does not work as described or as you expect.
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. **Security vulnerabilities do not belong here**: report them privately (see SECURITY.md). Questions go to Discussions.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part of tavrn is affected?
+      options:
+        - Node server (tavrn-node)
+        - Web client (tavrn-web)
+        - Encryption core (tavrn-crypto)
+        - SDK, E2EE or bot packages (tavrn-js)
+        - Protocol specification (tavrn-protocol)
+        - Deployment, container image or documentation
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Release tag, image tag or commit (`tavrn-node --version` prints the node version).
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the problem. Screenshots help for the client.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a room on ...
+        2. Click ...
+        3. See ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser and operating system for the client; database (SQLite or PostgreSQL), reverse proxy and how you run the node (container image or binary) for the server; whether federation with other nodes is involved.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant log output or browser console messages. Remove secrets, tokens and personal data first.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: This is not a security vulnerability (those go through private vulnerability reporting).
+          required: true
+        - label: I searched the existing issues and discussions.
+          required: true
+        - label: I agree to follow the code of conduct.
+          required: true

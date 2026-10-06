@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Checks of this repository: workflow lint (actionlint), shell lint of the scripts, secret scan.
+name: Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint (actionlint, shellcheck, SPDX)
+    if: ${{ vars.CI_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: SPDX headers
+        run: scripts/check-spdx.sh
+      - name: shellcheck
+        run: shellcheck scripts/*.sh
+      - name: actionlint
+        env:
+          ACTIONLINT_VERSION: "1.7.12"
+        run: |
+          tmp="$(mktemp -d)"
+          curl -fsSL "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" | tar -xz -C "$tmp" actionlint
+          "$tmp/actionlint" -color
+
+  gitleaks:
+    if: ${{ vars.CI_ENABLED == 'true' }}
+    uses: ./.github/workflows/gitleaks.yml

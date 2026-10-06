@@ -1,0 +1,180 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Reusable Rust CI: rustfmt, clippy (warnings are errors), tests and cargo-deny. Used by tavrn-crypto and
+# tavrn-node.
+#
+# Caller:
+#   jobs:
+#     rust:
+#       if: ${{ vars.CI_ENABLED == 'true' }}
+#       uses: just-tavrn/.github/.github/workflows/rust-ci.yml@main
+#       with:
+#         extra-targets: wasm32-unknown-unknown
+#         extra-clippy: |
+#           -p tavrn-crypto --target wasm32-unknown-unknown
+#         postgres: true
+#       secrets:
+#         READ_TOKEN: ${{ secrets.TAVRN_READ_PAT }}
+#
+# While the repositories are private, READ_TOKEN (a fine-grained PAT with contents read on the just-tavrn
+# repositories, docs/GITHUB.md) lets the job fetch the protocol submodule and git dependencies such as
+# tavrn-crypto. Without it only public repositories can be fetched.
+name: Rust CI (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: Directory of the Cargo workspace.
+        type: string
+        default: "."
+      toolchain:
+        description: Rust toolchain for dtolnay/rust-toolchain (rust-toolchain.toml still applies inside the repository).
+        type: string
+        default: stable
+      extra-targets:
+        description: Additional rustup targets, comma-separated (for example wasm32-unknown-unknown).
+        type: string
+        default: ""
+      extra-clippy:
+        description: Additional clippy runs, one argument line per line (each runs as `cargo clippy <line> -- -D warnings`).
+        type: string
+        default: ""
+      clippy-args:
+        description: Arguments of the main clippy run.
+        type: string
+        default: "--workspace --all-targets"
+      test-args:
+        description: Arguments of `cargo test`.
+        type: string
+        default: "--workspace"
+      postgres:
+        description: Start a PostgreSQL 17 service and export TAVRN_TEST_DATABASE_URL for the tests.
+        type: boolean
+        default: false
+      pre-test:
+        description: Shell commands run before the tests (for example installing livekit-server or ffmpeg).
+        type: string
+        default: ""
+      test-env:
+        description: Extra environment for the tests, KEY=value lines (appended to GITHUB_ENV).
+        type: string
+        default: ""
+      cargo-deny:
+        description: Run cargo-deny (advisories, bans, licenses, sources) with the repository's deny.toml.
+        type: boolean
+        default: true
+      cargo-deny-version:
+        description: cargo-deny release to use.
+        type: string
+        default: "0.20.2"
+      submodules:
+        description: Checkout submodules (false, true or recursive).
+        type: string
+        default: recursive
+    secrets:
+      READ_TOKEN:
+        description: Optional token with read access to the private just-tavrn repositories (submodules, git dependencies).
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+
+jobs:
+  rust:
+    name: Rust (fmt, clippy, test)
+    if: ${{ vars.CI_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # An empty image skips the service.
+        image: ${{ inputs.postgres && 'postgres:17-alpine' || '' }}
+        env:
+          POSTGRES_USER: tavrn
+          POSTGRES_PASSWORD: tavrn
+          POSTGRES_DB: tavrn_test
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U tavrn" --health-interval 5s --health-timeout 3s --health-retries 20
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Access to private organization repositories
+        env:
+          READ_TOKEN: ${{ secrets.READ_TOKEN }}
+        working-directory: .
+        run: |
+          if [ -n "$READ_TOKEN" ]; then
+            git config --global url."https://x-access-token:${READ_TOKEN}@github.com/just-tavrn/".insteadOf "https://github.com/just-tavrn/"
+            echo "fetching just-tavrn repositories with READ_TOKEN"
+          fi
+      - uses: actions/checkout@v7
+        with:
+          submodules: ${{ inputs.submodules }}
+          token: ${{ secrets.READ_TOKEN || github.token }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ inputs.toolchain }}
+          components: rustfmt, clippy
+          targets: ${{ inputs.extra-targets }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ inputs.working-directory }}
+      - name: rustfmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        env:
+          CLIPPY_ARGS: ${{ inputs.clippy-args }}
+        run: cargo clippy $CLIPPY_ARGS -- -D warnings
+      - name: clippy (extra)
+        if: ${{ inputs.extra-clippy != '' }}
+        env:
+          EXTRA_CLIPPY: ${{ inputs.extra-clippy }}
+        run: |
+          while IFS= read -r line; do
+            [ -z "${line// /}" ] && continue
+            echo "::group::cargo clippy $line"
+            cargo clippy $line -- -D warnings
+            echo "::endgroup::"
+          done <<< "$EXTRA_CLIPPY"
+      - name: Test environment
+        env:
+          POSTGRES: ${{ inputs.postgres }}
+          TEST_ENV: ${{ inputs.test-env }}
+        run: |
+          if [ "$POSTGRES" = "true" ]; then
+            echo "TAVRN_TEST_DATABASE_URL=postgres://tavrn:tavrn@localhost:5432/tavrn_test" >> "$GITHUB_ENV"
+          fi
+          if [ -n "$TEST_ENV" ]; then
+            printf '%s\n' "$TEST_ENV" | grep -E '^[A-Za-z_][A-Za-z0-9_]*=' >> "$GITHUB_ENV" || true
+          fi
+      - name: Prepare tests
+        if: ${{ inputs.pre-test != '' }}
+        env:
+          PRE_TEST: ${{ inputs.pre-test }}
+        run: bash -euo pipefail -c "$PRE_TEST"
+      - name: test
+        env:
+          TEST_ARGS: ${{ inputs.test-args }}
+        run: cargo test $TEST_ARGS
+      # The release binary instead of the container action: it sees the git credentials of the runner,
+      # which the private git dependencies need.
+      - name: cargo-deny
+        if: ${{ inputs.cargo-deny }}
+        env:
+          DENY_VERSION: ${{ inputs.cargo-deny-version }}
+        run: |
+          tmp="$(mktemp -d)"
+          name="cargo-deny-${DENY_VERSION}-x86_64-unknown-linux-musl"
+          base="https://github.com/EmbarkStudios/cargo-deny/releases/download/${DENY_VERSION}"
+          curl -fsSL -o "$tmp/$name.tar.gz" "$base/$name.tar.gz"
+          curl -fsSL -o "$tmp/$name.tar.gz.sha256" "$base/$name.tar.gz.sha256"
+          echo "$(cut -d' ' -f1 < "$tmp/$name.tar.gz.sha256")  $tmp/$name.tar.gz" | sha256sum -c -
+          tar -xzf "$tmp/$name.tar.gz" -C "$tmp"
+          "$tmp/$name/cargo-deny" --version
+          "$tmp/$name/cargo-deny" --log-level error check
