@@ -8,7 +8,9 @@
 #      directory or tool cache; the Cargo registry, the pnpm store and the Playwright browsers are shared,
 #   2. starts a private Valkey on 127.0.0.1:6379 for the cluster tests (TAVRN_TEST_CACHE_URL); private because
 #      the outage test kills every client of its Valkey,
-#   3. hands over to /entrypoint.sh. Everything exported here reaches the jobs.
+#   3. with TAVRN_XWIN=true, downloads the Microsoft CRT and Windows SDK for cargo-xwin into the shared cache
+#      once (the Windows build of the desktop app; their license forbids publishing them in the image),
+#   4. hands over to /entrypoint.sh. Everything exported here reaches the jobs.
 set -euo pipefail
 
 cache="${TAVRN_CACHE_DIR:-/cache}"
@@ -17,6 +19,15 @@ slots="${TAVRN_CACHE_SLOTS:-32}"
 target_max_gb="${TAVRN_TARGET_MAX_GB:-40}"
 
 log() { echo "tavrn-runner: $*"; }
+
+# True when cargo-xwin's marker file lists every architecture of XWIN_ARCH (its first line).
+xwin_ready() {
+  local arch archs="${XWIN_ARCH:-x86_64}"
+  [ -s "$1" ] || return 1
+  for arch in ${archs//,/ }; do
+    head -n1 "$1" | grep -qw -- "$arch" || return 1
+  done
+}
 
 if [ "$(id -u)" -ne 0 ]; then
   log "must start as root (the image's entrypoint drops to the user runner); do not set user: in the compose file" >&2
@@ -64,6 +75,31 @@ if [ -d "$cache" ] && mountpoint -q "$cache"; then
     ) 8>>"$cache/.seed.lock"
   fi
 
+  # cargo-xwin (runner/README.md, "Desktop builds"): CRT and SDK in $cache/cargo-xwin/xwin, downloaded by the first
+  # runner that needs them while the others wait on the lock. Each slot gets a cargo-xwin directory of its own,
+  # because cargo-xwin replaces a clang-cl link in it on every build; its xwin/ is the shared download.
+  xwin="$cache/cargo-xwin"
+  install -d -o runner -g runner "$xwin" "$xwin/xwin" "$slot/cargo-xwin"
+  if [ "${TAVRN_XWIN:-false}" = "true" ] && ! xwin_ready "$xwin/xwin/DONE"; then
+    (
+      flock 7
+      if ! xwin_ready "$xwin/xwin/DONE"; then
+        log "downloading the Microsoft CRT and Windows SDK for cargo-xwin (${XWIN_ARCH:-}, ${XWIN_VARIANT:-})"
+        if env -i PATH="$PATH" XWIN_CACHE_DIR="$xwin" XWIN_ARCH="${XWIN_ARCH:-x86_64}" XWIN_VARIANT="${XWIN_VARIANT:-desktop}" \
+          timeout "${TAVRN_XWIN_TIMEOUT:-30m}" gosu runner cargo-xwin cache xwin >/dev/null; then
+          log "cargo-xwin cache ready ($(du -sh "$xwin/xwin" | cut -f1))"
+        else
+          log "cargo-xwin cache download failed: Windows builds will try to download it themselves" >&2
+        fi
+      fi
+    ) 7>>"$cache/.xwin.lock"
+  fi
+  if [ ! -L "$slot/cargo-xwin/xwin" ]; then
+    rm -rf "$slot/cargo-xwin/xwin"
+  fi
+  ln -sfn "$xwin/xwin" "$slot/cargo-xwin/xwin"
+
+  export XWIN_CACHE_DIR="$slot/cargo-xwin"
   export CARGO_HOME="$cache/cargo"
   export CARGO_TARGET_DIR="$slot/target"
   export RUNNER_TOOL_CACHE="$slot/toolcache"
