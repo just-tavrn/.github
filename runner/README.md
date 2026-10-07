@@ -114,6 +114,11 @@ after `docker.service`):
 iptables -I DOCKER-USER -i br-ci -o br-ci -j ACCEPT
 ```
 
+> **Host routing check.** Docker's default address pools on a busy host often cover large private ranges (for
+> example `192.168.16.0/20`–`192.168.208.0/20`). If `ip route get <VM address>` on the host answers with a
+> Docker bridge instead of your router, add a more specific route for the CI subnet via the router (a netplan
+> `routes:` entry on the host bridge), or the host and its Portainer server will never reach the VM.
+
 ## 2. The VM
 
 On the host, as root (packages: `apt install qemu-kvm libvirt-daemon-system virtinst qemu-utils`):
