@@ -25,6 +25,7 @@
 #   IMAGE_DIR [/var/lib/libvirt/images]   OUT_DIR [/var/lib/libvirt/cloud-init/$VM_NAME]
 #   DRY_RUN [0]              1: only render the cloud-init files into OUT_DIR
 set -euo pipefail
+export LC_ALL=C   # virsh/ip output is parsed below; keep it in English whatever the caller's locale
 
 here="$(cd "$(dirname "$0")" && pwd)"
 
@@ -135,7 +136,7 @@ if ! virsh net-info "$VM_NETWORK" >/dev/null 2>&1; then
   sed -e "s|@@VM_NETWORK@@|$VM_NETWORK|" -e "s|@@VM_BRIDGE@@|$VM_BRIDGE|" "$here/libvirt-network.xml" > "$OUT_DIR/libvirt-network.xml"
   virsh net-define "$OUT_DIR/libvirt-network.xml"
 fi
-virsh net-info "$VM_NETWORK" | grep -q '^Active:.*yes' || virsh net-start "$VM_NETWORK"
+virsh net-list --name | grep -qx "$VM_NETWORK" || virsh net-start "$VM_NETWORK"
 virsh net-autostart "$VM_NETWORK" >/dev/null
 [ -e /dev/kvm ] || die "/dev/kvm missing: enable virtualization (VT-x/AMD-V) in the firmware"
 
