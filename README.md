@@ -15,6 +15,7 @@ decentralized, end-to-end encrypted community chat. The organization's landing p
 | [.github/ISSUE_TEMPLATE/](.github/ISSUE_TEMPLATE), [.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md) | Default issue forms and pull-request template |
 | [.github/workflows/](.github/workflows) | Reusable workflows called by the code repositories (below) |
 | [scripts/github-labels.sh](scripts/github-labels.sh) | Creates the common label set in a repository |
+| [scripts/github-rulesets.sh](scripts/github-rulesets.sh) | Creates the `main` and release-tag rulesets of a repository (docs/GITHUB.md, step 8) |
 | [docs/GITHUB.md](docs/GITHUB.md) | Organization and repository settings the owner sets by hand |
 | [runner/](runner/README.md) | Self-hosted runners: the runner VM (`runner/vm/`), the Portainer stack and the runner image |
 | [.github/dependabot.yml](.github/dependabot.yml) | Updates of the SHA-pinned actions and the digest-pinned runner images |

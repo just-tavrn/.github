@@ -96,8 +96,8 @@ callers pass this token as `READ_TOKEN` to the reusable workflows.
 
 `docker-publish.yml` pushes to `ghcr.io/just-tavrn/<image>` with the job token. After the first push open the
 package (organization → **Packages** → `tavrn-node` → **Package settings**): under **Manage Actions access**
-add `tavrn-web` with **Read** (the e2e workflow pulls the image with its own job token), and keep the
-visibility **Private** until the release; then switch it to **Public**.
+add `tavrn-web` with **Read** (the e2e workflow pulls `tavrn-node:edge` with its own job token and fails with
+"denied" until then), and keep the visibility **Private** until the release; then switch it to **Public**.
 
 ## 4. Variables: switching CI on
 
@@ -150,14 +150,23 @@ Organization **Settings** → **Code security** → **Configurations** (or **Glo
 2. Once public: **Secret scanning** with **push protection** and **Private vulnerability reporting**:
    **Enable all**, and automatically for new public repositories (on the Free plan both work only for public
    repositories). `SECURITY.md` points reporters at the **Report a vulnerability** button.
+3. **Dependabot** → **Grant Dependabot access to private repositories**: add `.github`, `tavrn-protocol`,
+   `tavrn-crypto` and `tavrn-js`. Without it the `github-actions` updates fail with "Dependabot doesn't have
+   access" at the reusable workflows of `.github`, and the submodule and git-dependency updates at the private
+   protocol, crypto and js repositories. (Dependabot's own secrets, `TAVRN_READ_PAT` and
+   `PUBLISH_CHECK_PRIVATE`, cover the CI of its pull requests, not this lookup.)
 
 ## 8. When the repositories go public
 
 In this order: make `.github` public, then the code repositories in release-train order. Per code repository:
 
-1. Branch protection for `main` (a ruleset under **Settings** → **Rules**): require a pull request with one
-   approval from code owners, require the status checks (CI jobs, gitleaks, CLA), require a linear history,
-   block force pushes and deletions.
+1. Rulesets for `main` and the release tags: `scripts/github-rulesets.sh <repo>` creates (or updates) them
+   through the API: changes to `main` only through pull requests with every CI check green on the latest
+   commit (the check names per repository are in the script), no force pushes and no deletions; admins may
+   bypass through a pull request only; `v*` tags can neither be moved nor deleted. Reviews: `--approvals 1`
+   (with a code-owner review) once there is more than one maintainer. Until the repository is public the API
+   refuses rulesets on the Free plan, so the same rule holds as a convention: nobody pushes to `main`, every
+   change is a pull request, merged branches are deleted (`delete branch on merge` is set everywhere).
 2. Turn on secret scanning push protection and private vulnerability reporting (step 7 if not org-wide).
 3. Move `CLA_PAT` to the organization secret only, delete `TAVRN_READ_PAT` once the git references have
    become published package versions.
