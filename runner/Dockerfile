@@ -12,7 +12,7 @@
 # wasm32-unknown-unknown) as of the image build; rebuild the image to pick up a new stable release.
 
 # Valkey for the cluster tests (TAVRN_TEST_CACHE_URL), one private instance per runner container.
-FROM valkey/valkey:8.1.10@sha256:640c5e62cea04b6d6f2084232651d0cc70362d31f4f805e7be94dbed6855e8f2 AS valkey
+FROM valkey/valkey:9.1.2@sha256:418652cfb58ef879d4978c33553735d7147016032d5aefaa14c828e611eb9dfd AS valkey
 # livekit-server for the voice tests, the same release the node image ships.
 FROM livekit/livekit-server:v1.13.7@sha256:6fd3b7088874c4d119160dd688798dfec852bc014786d392caad15f6f63912a3 AS livekit
 
