@@ -101,6 +101,9 @@ services:
       LABELS: self-hosted,linux,x64,tavrn-heavy
       TAVRN_RUNNER_CLASS: heavy
       CARGO_BUILD_JOBS: ${RUNNER_HEAVY_CARGO_JOBS:-16}
+      # Microsoft CRT and Windows SDK for the desktop app's Windows build, downloaded into the cache at start
+      # (runner/README.md, "Desktop builds").
+      TAVRN_XWIN: "true"
 
   runner-e2e:
     <<: *runner
