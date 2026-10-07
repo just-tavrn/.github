@@ -125,6 +125,9 @@ In short:
 6. Organization **Settings** → **Actions** → **Runner groups** → **Default**: the Free plan has no custom
    groups; tick **Allow public repositories** only when the repositories go public (the workflows keep forks
    and Dependabot off the self-hosted runners).
+7. Desktop builds (tavrn-web's Tauri app): the `tavrn-heavy` runners download the Microsoft CRT and Windows SDK
+   into their cache at start, under Microsoft's Visual Studio Build Tools license (README, "Desktop builds");
+   the VM's egress allowlist needs `aka.ms` and `download.visualstudio.microsoft.com` for it.
 
 ## 6. Community: Discussions, labels, profile
 

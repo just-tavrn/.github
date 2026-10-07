@@ -12,6 +12,7 @@ runners write lives in RAM (tmpfs); the host's disk only holds the VM's system a
 | [vm/libvirt-network.xml](vm/libvirt-network.xml) | libvirt network `tavrn-ci` in bridge mode on the host bridge `br-ci` |
 | [docker-compose.yml](docker-compose.yml), [.env.example](.env.example) | The runner stack (Portainer stack) and its variables |
 | [Dockerfile](Dockerfile), [entrypoint.sh](entrypoint.sh) | The runner image (`ghcr.io/just-tavrn/tavrn-runner`, built by [runner-image.yml](../.github/workflows/runner-image.yml)) |
+| [smoke-desktop.sh](smoke-desktop.sh) | Smoke test of the image's desktop toolchain (section [Desktop builds](#desktop-builds)) |
 
 ## What runs where
 
@@ -21,6 +22,7 @@ runners write lives in RAM (tmpfs); the host's disk only holds the VM's system a
 | Rust CI, JavaScript CI, container builds (`rust-ci.yml`, `js-ci.yml`, `docker-publish.yml` with `runner: tavrn-heavy`) | self-hosted `tavrn-heavy` | heavy builds and tests; PostgreSQL and Valkey of the stack, caches in RAM |
 | Pull requests from forks and from Dependabot of those workflows | GitHub-hosted (automatic fallback) | untrusted code never reaches the VM |
 | End-to-end suite (`e2e.yml`) | self-hosted `tavrn-e2e` | Chromium, livekit-server, ffmpeg in the image; skipped for forks and Dependabot |
+| Desktop app of tavrn-web (`apps/desktop`, Tauri 2): Linux natively, Windows cross-compiled | self-hosted `tavrn-heavy` | WebKitGTK, NSIS, LLVM and cargo-xwin in the image, the Windows SDK in the cache ([Desktop builds](#desktop-builds)) |
 
 A caller selects the self-hosted class with one input:
 
@@ -156,6 +158,7 @@ sudo journalctl -k | grep tavrn-egress | tail                         # what was
 
 The allowlist ([vm/dnsmasq-egress.conf](vm/dnsmasq-egress.conf)) covers GitHub (including the Actions
 service and its Azure blob storage), ghcr.io, crates.io and rustup, npm and Node.js, Playwright downloads,
+Microsoft's Visual Studio download server (the Windows SDK of the [desktop builds](#desktop-builds)),
 Docker Hub, the Ubuntu/Debian/Alpine mirrors and the sources of tavrn's `deploy/Dockerfile`. CDNs host many
 sites on the same addresses, and `blob.core.windows.net` / `storage.googleapis.com` are shared storage, so the
 allowlist narrows exfiltration but does not close it; its main job together with the private-range block is to
@@ -253,6 +256,8 @@ survives the restart after every job (Docker discards a tmpfs volume when no con
 - `/cache/cargo` (`CARGO_HOME`: registry, git checkouts, `cargo install`ed tools) and `/cache/pnpm-store` are
   shared; both tools lock them for concurrent use.
 - `/cache/ms-playwright` is seeded once from the image's Chromium; other Playwright versions download beside it.
+- `/cache/cargo-xwin/xwin` holds the Microsoft CRT and Windows SDK of the Windows desktop build, downloaded once
+  by the entrypoint of the first `tavrn-heavy` runner (section [Desktop builds](#desktop-builds)).
 - `/cache/slots/<class>-<n>/target` and `…/toolcache`: each runner container holds an exclusive `flock` on
   one slot for its lifetime, so two jobs never share a Cargo target directory.
 
@@ -266,6 +271,79 @@ would break parallel jobs on a shared one).
 
 The image's ffmpeg is a static GPL build from BtbN (with libwebp). That is fine for tooling that runs the tests
 and is never distributed with tavrn; the node image builds its own LGPL ffmpeg (`deploy/Dockerfile`).
+
+## Desktop builds
+
+The desktop app of tavrn-web (`apps/desktop`, a Tauri 2 shell) builds on `tavrn-heavy`: for Linux natively, for
+Windows by cross-compilation as Tauri documents it
+([Build Windows apps on Linux](https://v2.tauri.app/distribute/windows-installer/#build-windows-apps-on-linux-and-macos),
+experimental upstream). What the image adds for it:
+
+| Purpose | In the image |
+|---|---|
+| Linux build and bundles (deb, AppImage) | `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`, `patchelf`, `xdg-utils`, `file` |
+| WebDriver tests of the Linux build | `webkit2gtk-driver` (`WebKitWebDriver`), `xvfb` (`xvfb-run`), `tauri-driver` (`TAURI_DRIVER_VERSION`) |
+| Windows build | Rust target `x86_64-pc-windows-msvc`, `cargo-xwin` (`CARGO_XWIN_VERSION`), `clang` (as `clang-cl`), `lld` (`lld-link`), `llvm` (`llvm-lib`, `llvm-rc`), `nsis` (`makensis`); `XWIN_ARCH=x86_64`, `XWIN_VARIANT=desktop` |
+
+```bash
+pnpm tauri build --bundles deb,appimage                                                    # Linux
+pnpm tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis        # Windows
+xvfb-run -a <WebDriver test command>                                                       # tauri-driver + WebKitWebDriver
+```
+
+Limits of the Windows route:
+
+- **NSIS only, no MSI**: the MSI bundler needs WiX, which runs only on Windows. Build an MSI on a Windows runner
+  if one is ever needed.
+- **x86_64 only**: the cache holds the x86_64 libraries; ARM64 needs `XWIN_ARCH=x86_64,aarch64` in the image and
+  the `aarch64-pc-windows-msvc` target.
+- **No Windows execution**: no Wine in the image, so Windows binaries are built but not run or tested here.
+- **Signing**: Tauri signs on Linux only through a custom `signCommand` (its docs use relic); nothing is
+  set up for it.
+- **WebView2 install mode**: keep `bundle.windows.webviewInstallMode` at `downloadBootstrapper` (the default) or
+  `skip`. `embedBootstrapper` and `offlineInstaller` download the WebView2 installer from Microsoft at build time,
+  which the egress filter blocks.
+- C and C++ code of dependencies compiles with `clang-cl` against the downloaded SDK; crates that need MSVC-only
+  tools (the `ml64` assembler, `cl.exe` itself) do not build.
+- The Tauri bundler downloads its helpers at build time from GitHub (allowlisted): `nsis_tauri_utils.dll` for NSIS,
+  `linuxdeploy` and `AppRun` for the AppImage (run with `APPIMAGE_EXTRACT_AND_RUN`, no FUSE needed).
+
+### The Microsoft CRT and Windows SDK
+
+cargo-xwin links against the Microsoft C runtime (CRT) and the Windows SDK: headers and import libraries that
+[xwin](https://github.com/Jake-Shadle/xwin) (built into cargo-xwin) downloads from Microsoft's Visual Studio
+download server (`download.visualstudio.microsoft.com`, manifest through `aka.ms/vs/17/release/channel`): the
+x86_64 desktop libraries, without debug libraries, about 630 MB unpacked.
+
+**Terms.** They are part of the Visual Studio Build Tools and come under Microsoft's license terms for them
+(xwin links them as <https://go.microsoft.com/fwlink/?LinkId=2086102>; cargo-xwin accepts them without asking,
+running it means accepting them). The terms allow copying the files onto "Build Devices", including virtual
+machines and containers on machines that are owned by you or dedicated solely to your use, to compile, build and
+verify applications; they forbid sharing or publishing the software, and tie the use rights to a license of Visual
+Studio Community, Professional or Enterprise (Community is free for open-source projects). Hence:
+
+- **The files are not in the image.** `ghcr.io/just-tavrn/tavrn-runner` is a public package, and putting them
+  in it would publish them.
+- The entrypoint of a `tavrn-heavy` runner (`TAVRN_XWIN=true` in the stack) downloads them with
+  `cargo-xwin cache xwin` into `/cache/cargo-xwin/xwin` before the runner registers: once per VM boot, by the
+  first runner, while the others wait on a lock (about 7 minutes on a test machine's home line). The jobs get
+  `XWIN_CACHE_DIR` pointing at a cargo-xwin directory of their cache slot whose `xwin/` links to that download,
+  so a build never downloads the SDK. If the download failed (logged as `cargo-xwin cache download failed`),
+  cargo-xwin tries again during the job.
+- Never upload `/cache/cargo-xwin` (or a target directory with the SDK) as an artifact or an Actions cache.
+- Outside the stack (no `/cache` volume), cargo-xwin downloads them into `~/.cache/cargo-xwin` on first use.
+
+### Smoke test
+
+[smoke-desktop.sh](smoke-desktop.sh) scaffolds a minimal Tauri 2 app (create-tauri-app, vanilla template) and
+builds it for both targets: deb and AppImage, a start of the Linux binary under Xvfb, and the NSIS installer with
+cargo-xwin. Run it in a new image before pinning its digest (network needed; it downloads the SDK itself when no
+prepared `XWIN_CACHE_DIR` exists):
+
+```bash
+docker run --rm --user runner --entrypoint /smoke-desktop.sh \
+  -v "$PWD/runner/smoke-desktop.sh:/smoke-desktop.sh:ro" ghcr.io/just-tavrn/tavrn-runner:edge
+```
 
 ## Security
 
