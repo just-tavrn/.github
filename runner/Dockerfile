@@ -7,7 +7,8 @@
 #
 # Pinned tool versions; keep them in sync with the code repositories:
 #   Node 24 + pnpm (package.json "packageManager"), Playwright (e2e lockfile), livekit-server (justfile,
-#   deploy/Dockerfile), wasm-bindgen-cli (Cargo.lock), cargo-deny / gitleaks / actionlint (reusable workflows).
+#   deploy/Dockerfile), wasm-bindgen-cli (Cargo.lock), cargo-deny / gitleaks / actionlint (reusable workflows),
+#   cargo-xwin / tauri-driver (the desktop app of tavrn-web, apps/desktop).
 # The Rust toolchain follows rust-toolchain.toml of the code repositories (channel stable, rustfmt, clippy,
 # wasm32-unknown-unknown) as of the image build; rebuild the image to pick up a new stable release.
 
@@ -29,6 +30,8 @@ ARG CARGO_SWEEP_VERSION=0.8.0
 ARG WASM_BINDGEN_VERSION=0.2.129
 ARG GITLEAKS_VERSION=8.30.1
 ARG ACTIONLINT_VERSION=1.7.12
+ARG CARGO_XWIN_VERSION=0.23.1
+ARG TAURI_DRIVER_VERSION=2.1.0
 # BtbN static ffmpeg (GPL build, with libwebp): tooling for the media tests only, never redistributed with tavrn.
 ARG FFMPEG_ASSET=ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz
 
@@ -118,6 +121,34 @@ RUN cd /tmp \
     && tar -xJf "${FFMPEG_ASSET}" --strip-components=2 --wildcards '*/bin/ffmpeg' \
     && install -m 0755 ffmpeg /usr/local/bin/ffmpeg && rm -rf /tmp/* \
     && ffmpeg -hide_banner -encoders | grep -c libwebp_anim
+
+# Desktop app (Tauri 2, runner/README.md "Desktop builds"): WebKitGTK and GTK development files for the Linux
+# build and its deb/AppImage bundles, WebKitWebDriver and Xvfb for WebDriver tests, NSIS and LLVM (clang as
+# clang-cl, lld-link, llvm-lib, llvm-rc) for the Windows build with cargo-xwin.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf xdg-utils file \
+        webkit2gtk-driver xvfb nsis clang lld llvm \
+    && rm -rf /var/lib/apt/lists/* \
+    && command -v WebKitWebDriver xvfb-run lld-link llvm-lib llvm-rc >/dev/null \
+    && makensis -VERSION && clang --version | head -n1
+
+# Windows target and the Tauri tools: cargo-xwin (release binary, checksum verified) and tauri-driver (WebDriver
+# bridge to WebKitWebDriver). The Microsoft CRT and Windows SDK that cargo-xwin needs are not part of the image:
+# their license forbids publishing them, so the entrypoint downloads them into the runners' cache (README).
+RUN cd /tmp \
+    && rustup target add x86_64-pc-windows-msvc \
+    && xw="cargo-xwin-v${CARGO_XWIN_VERSION}.x86_64-unknown-linux-musl.tar.gz" \
+    && curl -fsSLO "https://github.com/rust-cross/cargo-xwin/releases/download/v${CARGO_XWIN_VERSION}/${xw}" \
+    && echo "$(curl -fsSL "https://github.com/rust-cross/cargo-xwin/releases/download/v${CARGO_XWIN_VERSION}/${xw}.sha256" | cut -d' ' -f1)  ${xw}" | sha256sum -c - \
+    && tar -xzf "$xw" cargo-xwin && install -m 0755 cargo-xwin /usr/local/bin/cargo-xwin \
+    && cargo install --locked --root /usr/local "tauri-driver@${TAURI_DRIVER_VERSION}" \
+    && rm -rf /tmp/* "$CARGO_HOME/registry" "$CARGO_HOME/git" \
+    && cargo xwin --version && command -v tauri-driver
+
+# cargo-xwin: x86_64 desktop libraries only; the entrypoint's download and the jobs must ask for the same set.
+ENV XWIN_ARCH=x86_64 \
+    XWIN_VARIANT=desktop
 
 COPY --from=livekit /livekit-server /usr/local/bin/livekit-server
 COPY --from=valkey /usr/local/bin/valkey-server /usr/local/bin/valkey-cli /usr/local/bin/
