@@ -34,6 +34,9 @@ VM_VCPUS="${VM_VCPUS:-32}"
 VM_DISK_GB="${VM_DISK_GB:-64}"
 VM_BRIDGE="${VM_BRIDGE:-br-ci}"
 VM_NETWORK="${VM_NETWORK:-tavrn-ci}"
+# A fixed, locally administered MAC (derived from the VM name) so the guest's network configuration can match
+# the uplink by MAC address, which every cloud-init version honours (matching by driver did not on 24.04).
+VM_MAC="${VM_MAC:-$(printf '52:54:00:%s' "$(printf '%s' "$VM_NAME" | md5sum | sed -E 's/^(..)(..)(..).*/\1:\2:\3/')")}"
 CI_SUBNET="${CI_SUBNET:-10.100.0.0/24}"
 [[ "$CI_SUBNET" =~ ^([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})\.0/24$ ]] \
   || { echo "make-vm: CI_SUBNET must be a /24 like 10.100.0.0/24 (or set VM_IP_CIDR and VM_GATEWAY)" >&2; exit 1; }
@@ -59,6 +62,7 @@ valid_cidr_list "$DNS_UPSTREAM" || die "DNS_UPSTREAM must be IPv4 addresses, com
 [[ "$VM_NAME" =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "VM_NAME: lowercase letters, digits and dashes only"
 [[ "$AGENT_SECRET" =~ ^[A-Za-z0-9._~+-]*$ ]] || die "AGENT_SECRET: letters, digits and ._~+- only"
 [[ "$PORTAINER_AGENT_IMAGE" =~ ^[A-Za-z0-9./:@_-]+$ ]] || die "PORTAINER_AGENT_IMAGE looks wrong"
+[[ "$VM_MAC" =~ ^52:54:00(:[0-9a-f]{2}){3}$ ]] || die "VM_MAC must be 52:54:00:xx:xx:xx (lowercase hex)"
 [[ "$VM_NETWORK" =~ ^[a-z0-9][a-z0-9-]*$ && "$VM_BRIDGE" =~ ^[a-z0-9][a-z0-9.-]*$ ]] || die "VM_NETWORK/VM_BRIDGE: lowercase letters, digits, dots and dashes"
 [ -r "$SSH_PUBKEY_FILE" ] || die "SSH public key $SSH_PUBKEY_FILE not readable (SSH_PUBKEY_FILE)"
 ssh_pubkey="$(head -n 1 "$SSH_PUBKEY_FILE")"
@@ -101,7 +105,7 @@ network:
   ethernets:
     uplink0:
       match:
-        driver: virtio_net
+        macaddress: "$VM_MAC"
       set-name: uplink0
       dhcp4: false
       dhcp6: false
@@ -112,7 +116,7 @@ network:
           via: $VM_GATEWAY
 NET
 else
-  grep -v '^#' "$here/network-config.yaml" > "$OUT_DIR/network-config"
+  grep -v '^#' "$here/network-config.yaml" | sed -e "s|@@VM_MAC@@|$VM_MAC|" > "$OUT_DIR/network-config"
 fi
 echo "cloud-init files in $OUT_DIR"
 [ "$DRY_RUN" = 1 ] && exit 0
@@ -159,7 +163,7 @@ virt-install \
   --osinfo ubuntu24.04 \
   --import \
   --disk "path=$disk,format=qcow2,bus=virtio,discard=unmap" \
-  --network "network=$VM_NETWORK,model=virtio" \
+  --network "network=$VM_NETWORK,model=virtio,mac=$VM_MAC" \
   --cloud-init "user-data=$OUT_DIR/user-data,network-config=$OUT_DIR/network-config" \
   --rng /dev/urandom \
   --graphics none \

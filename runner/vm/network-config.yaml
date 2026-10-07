@@ -8,7 +8,7 @@ network:
   ethernets:
     uplink0:
       match:
-        driver: virtio_net
+        macaddress: "@@VM_MAC@@"
       set-name: uplink0
       dhcp4: true
       dhcp6: false
