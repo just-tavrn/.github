@@ -264,10 +264,16 @@ survives the restart after every job (Docker discards a tmpfs volume when no con
 The `toolchain` and `extra-targets` inputs of `rust-ci.yml` and the `node-version` inputs are checked against
 the image on self-hosted runners, not installed (an install would write to the container layer on disk);
 rebuild the image for a new Rust or Node.js release. The `services:` PostgreSQL of `rust-ci.yml` only runs on
-GitHub-hosted runners; self-hosted jobs always get `TAVRN_TEST_DATABASE_URL` (the stack's PostgreSQL, whose
-`housekeeping` drops `t_*` test databases older than `TEST_DB_MAX_AGE_HOURS`) and `TAVRN_TEST_CACHE_URL` (a
-private Valkey in every runner container: the cluster outage test kills all clients of its Valkey, which
-would break parallel jobs on a shared one).
+GitHub-hosted runners; self-hosted jobs always get `TAVRN_TEST_DATABASE_URL` (the stack's PostgreSQL) and
+`TAVRN_TEST_CACHE_URL` (a private Valkey in every runner container: the cluster outage test kills all clients
+of its Valkey, which would break parallel jobs on a shared one).
+
+The node tests create one database `t_<ulid>` per test node on that PostgreSQL (about 14 MB each, on the tmpfs
+of `POSTGRES_DATA_SIZE`). They clean up after themselves: a test node drops its database when it goes away, so
+a run only holds the databases of the tests running at that moment; and before creating one, the tests drop
+the `t_*` databases older than `TAVRN_TEST_DB_MAX_AGE_SECS` (default 20 minutes), the leftovers of cancelled
+or crashed runs. The `housekeeping` service is the backstop: every 10 minutes it drops `t_*` databases older
+than `TEST_DB_MAX_AGE_HOURS` (default 1).
 
 The image's ffmpeg is a static GPL build from BtbN (with libwebp). That is fine for tooling that runs the tests
 and is never distributed with tavrn; the node image builds its own LGPL ffmpeg (`deploy/Dockerfile`).
@@ -400,7 +406,7 @@ repository is private and every committer is trusted.
 | Downloads fail with "connection refused" or hang | `sudo journalctl -k \| grep tavrn-egress` in the VM; add the domain to `dnsmasq-egress.conf`; DinD containers need `DIND_DNS=172.17.0.1` |
 | `docker pull` in a job fails with `lookup … on 127.0.0.11:53: server misbehaving` (SERVFAIL) | the inner daemon's bridge shadows the resolver address: `docker exec tavrn-runner-dind-1 ip addr show docker0` must not show 172.17.0.1 (the stack sets `--bip 10.200.0.1/16`); redeploy the stack after updating the compose file |
 | Container killed with exit code 137 | OOM: tmpfs content counts against `mem_limit`; raise the limit or lower the tmpfs sizes |
-| `no space left on device` in a build | `RUNNER_WORK_SIZE`, `RUNNER_CACHE_SIZE`, `DIND_STORAGE_SIZE` or `POSTGRES_DATA_SIZE` (lower `TEST_DB_MAX_AGE_HOURS`) |
+| `no space left on device` in a build | `RUNNER_WORK_SIZE`, `RUNNER_CACHE_SIZE`, `DIND_STORAGE_SIZE` or `POSTGRES_DATA_SIZE` (count the `t_*` databases: `docker exec tavrn-runner-postgres-1 psql -U tavrn -d postgres -Atc "SELECT count(*) FROM pg_database WHERE datname LIKE 't\\_%'"`; lower `TEST_DB_MAX_AGE_HOURS`) |
 | VM has no network | Docker's `br_netfilter` on the host: the `DOCKER-USER` rule above; the VLAN tagged on both trunk ports of a managed switch; `bridge link show` lists the VLAN interface and the VM's `vnetN` in `br-ci` |
 | Lookups fail in the VM | the router accepts DNS from the CI zone and its resolver answers on that interface; in the VM `dig @<router address> github.com` |
 | `rustup` tries to install a toolchain | the repository pins a version the image lacks: rebuild the image with `RUST_TOOLCHAIN` set accordingly |
