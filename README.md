@@ -16,6 +16,8 @@ decentralized, end-to-end encrypted community chat. The organization's landing p
 | [.github/workflows/](.github/workflows) | Reusable workflows called by the code repositories (below) |
 | [scripts/github-labels.sh](scripts/github-labels.sh) | Creates the common label set in a repository |
 | [docs/GITHUB.md](docs/GITHUB.md) | Organization and repository settings the owner sets by hand |
+| [runner/](runner/README.md) | Self-hosted runners: the runner VM (`runner/vm/`), the Portainer stack and the runner image |
+| [.github/dependabot.yml](.github/dependabot.yml) | Updates of the SHA-pinned actions and the digest-pinned runner images |
 
 ## Reusable workflows
 
@@ -29,7 +31,12 @@ file starts with a commented caller example and documents its inputs.
 | [js-ci.yml](.github/workflows/js-ci.yml) | pnpm install with the frozen lockfile, SPDX and license checks, typecheck, tests, optional build |
 | [gitleaks.yml](.github/workflows/gitleaks.yml) | Secret scan of the full history with the gitleaks CLI |
 | [docker-publish.yml](.github/workflows/docker-publish.yml) | Container build with provenance and SBOM; pushes to `ghcr.io/just-tavrn/<image>` on main and `v*` tags when asked |
-| [e2e.yml](.github/workflows/e2e.yml) | Playwright run on the self-hosted runner `tavrn-e2e`, against a node image, artifact or binary |
+| [e2e.yml](.github/workflows/e2e.yml) | Playwright run on the self-hosted runners `tavrn-e2e`, against a node image, artifact or binary |
+| [runner-image.yml](.github/workflows/runner-image.yml) | Builds and publishes the runner image `ghcr.io/just-tavrn/tavrn-runner` (not reusable) |
+
+`rust-ci.yml`, `js-ci.yml` and `docker-publish.yml` take an input `runner`: `ubuntu-latest` (default) or
+`tavrn-heavy` for the self-hosted runners ([runner/README.md](runner/README.md)); pull requests from forks
+and from Dependabot always fall back to GitHub-hosted runners. Every action is pinned by commit SHA.
 
 All jobs run only when the repository variable `CI_ENABLED` is `true` (the callers check it as well), so
 nothing runs on GitHub until the owner switches it on per repository (see [docs/GITHUB.md](docs/GITHUB.md)).
@@ -40,7 +47,7 @@ and the git dependencies between the repositories.
 
 ```bash
 scripts/check-spdx.sh      # SPDX headers of workflows and scripts
-shellcheck scripts/*.sh
+shellcheck scripts/*.sh runner/*.sh runner/vm/*.sh
 actionlint                 # workflow lint (https://github.com/rhysd/actionlint)
 ```
 

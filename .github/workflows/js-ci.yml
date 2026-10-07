@@ -11,16 +11,27 @@
 #       with:
 #         license-check: scripts/check-js-licenses.mjs
 #         build: pnpm --filter @tavrn/web build
+#         runner: tavrn-heavy
 #       secrets:
 #         READ_TOKEN: ${{ secrets.TAVRN_READ_PAT }}
 #
 # pnpm comes from the "packageManager" field of the caller's package.json. While the repositories are
 # private, READ_TOKEN lets pnpm fetch git dependencies such as github:just-tavrn/tavrn-js#v0.1.0&path:sdk.
+# On the self-hosted runners (runner: tavrn-heavy) Node.js and Rust come from the runner image (node-version is
+# checked, not installed) and the pnpm store and Cargo caches live in the stack's RAM cache.
 name: JavaScript CI (reusable)
 
 on:
   workflow_call:
     inputs:
+      runner:
+        description: >-
+          Where the job runs: a GitHub-hosted label (default ubuntu-latest) or a self-hosted runner class of the
+          tavrn runner stack (tavrn-heavy, runner/README.md). Self-hosted only for trusted events: pushes, manual
+          and scheduled runs, and pull requests from branches of the calling repository; pull requests from forks
+          and from Dependabot always run on ubuntu-latest.
+        type: string
+        default: ubuntu-latest
       working-directory:
         description: Directory of the pnpm workspace.
         type: string
@@ -72,8 +83,10 @@ permissions:
 jobs:
   js:
     name: JavaScript (install, typecheck, test)
+    # Self-hosted runners execute the job's code in the runner VM: forks and Dependabot never get them (the
+    # expression falls back to ubuntu-latest for those events; runner/README.md, "Security").
     if: ${{ vars.CI_ENABLED == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(startsWith(inputs.runner, 'tavrn-') && github.event_name != 'pull_request_target' && github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && format('["self-hosted","linux","x64","{0}"]', inputs.runner) || (startsWith(inputs.runner, 'tavrn-') && '"ubuntu-latest"' || toJSON(inputs.runner))) }}
     defaults:
       run:
         working-directory: ${{ inputs.working-directory }}
@@ -89,27 +102,39 @@ jobs:
             git config --global --add url."https://x-access-token:${READ_TOKEN}@github.com/just-tavrn/".insteadOf "git@github.com:just-tavrn/"
             echo "fetching just-tavrn repositories with READ_TOKEN"
           fi
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: ${{ inputs.submodules }}
           token: ${{ secrets.READ_TOKEN || github.token }}
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-        if: ${{ inputs.rust-wasm }}
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
+        if: ${{ inputs.rust-wasm && runner.environment == 'github-hosted' }}
         with:
+          toolchain: stable
           targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-        if: ${{ inputs.rust-wasm }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: ${{ inputs.rust-wasm && runner.environment == 'github-hosted' }}
         with:
           workspaces: ${{ inputs.working-directory }}
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           package_json_file: ${{ inputs.working-directory }}/package.json
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: ${{ runner.environment == 'github-hosted' }}
         with:
           node-version: ${{ inputs.node-version }}
           cache: pnpm
           cache-dependency-path: ${{ inputs.working-directory }}/pnpm-lock.yaml
+      - name: Node.js of the runner image
+        if: ${{ runner.environment == 'self-hosted' }}
+        env:
+          NODE_WANTED: ${{ inputs.node-version }}
+        run: |
+          have="$(node --version)"
+          case "$have" in
+            "v${NODE_WANTED}"|"v${NODE_WANTED}".*) echo "Node.js $have" ;;
+            *) echo "::error::the runner image has Node.js $have, the caller wants $NODE_WANTED (runner/Dockerfile)"; exit 1 ;;
+          esac
       - name: Install (frozen lockfile)
         run: pnpm install --frozen-lockfile
       - name: Prepare

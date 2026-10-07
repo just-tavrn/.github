@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Network of the tavrn runner VM (netplan v2 via cloud-init). The virtio interface is renamed to uplink0, the
+# name nftables.conf filters on. make-vm.sh uses this file for DHCP and writes a static variant when
+# VM_IP_CIDR is set.
+network:
+  version: 2
+  ethernets:
+    uplink0:
+      match:
+        driver: virtio_net
+      set-name: uplink0
+      dhcp4: true
+      dhcp6: false
+      accept-ra: false

@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Builds the self-hosted runner image (runner/Dockerfile) on a GitHub-hosted runner and pushes it to
+# ghcr.io/just-tavrn/tavrn-runner (edge on main, plus a sha-<commit> tag). Weekly as well, so a new stable Rust
+# release and fresh distribution packages arrive without a commit. The runner VM uses the image pinned by digest
+# (RUNNER_IMAGE in the stack's environment, runner/README.md, "Updating").
+name: Runner image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - runner/Dockerfile
+      - runner/entrypoint.sh
+      - .github/workflows/runner-image.yml
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    if: ${{ vars.CI_ENABLED == 'true' }}
+    uses: ./.github/workflows/docker-publish.yml
+    with:
+      context: runner
+      dockerfile: runner/Dockerfile
+      image-name: tavrn-runner
+      push: true
+      submodules: ${{ 'false' }}

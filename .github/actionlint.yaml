@@ -1,4 +1,5 @@
 # Configuration of actionlint (https://github.com/rhysd/actionlint), run by workflows/checks.yml.
 self-hosted-runner:
   labels:
+    - tavrn-heavy
     - tavrn-e2e

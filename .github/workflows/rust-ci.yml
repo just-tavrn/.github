@@ -13,17 +13,31 @@
 #         extra-clippy: |
 #           -p tavrn-crypto --target wasm32-unknown-unknown
 #         postgres: true
+#         runner: tavrn-heavy
 #       secrets:
 #         READ_TOKEN: ${{ secrets.TAVRN_READ_PAT }}
 #
 # While the repositories are private, READ_TOKEN (a fine-grained PAT with contents read on the just-tavrn
 # repositories, docs/GITHUB.md) lets the job fetch the protocol submodule and git dependencies such as
 # tavrn-crypto. Without it only public repositories can be fetched.
+#
+# On the self-hosted runners (runner: tavrn-heavy) the runner image provides the toolchain (rust-toolchain.toml
+# as of the image build; the toolchain and extra-targets inputs are checked, not installed), the Cargo caches
+# live in the stack's RAM cache, and the stack's PostgreSQL (TAVRN_TEST_DATABASE_URL) and the runner's private
+# Valkey (TAVRN_TEST_CACHE_URL) are always set.
 name: Rust CI (reusable)
 
 on:
   workflow_call:
     inputs:
+      runner:
+        description: >-
+          Where the job runs: a GitHub-hosted label (default ubuntu-latest) or a self-hosted runner class of the
+          tavrn runner stack (tavrn-heavy, runner/README.md). Self-hosted only for trusted events: pushes, manual
+          and scheduled runs, and pull requests from branches of the calling repository; pull requests from forks
+          and from Dependabot always run on ubuntu-latest.
+        type: string
+        default: ubuntu-latest
       working-directory:
         description: Directory of the Cargo workspace.
         type: string
@@ -49,7 +63,7 @@ on:
         type: string
         default: "--workspace"
       postgres:
-        description: Start a PostgreSQL 17 service and export TAVRN_TEST_DATABASE_URL for the tests.
+        description: Start a PostgreSQL 17 service and export TAVRN_TEST_DATABASE_URL for the tests (GitHub-hosted; the self-hosted stack always has one).
         type: boolean
         default: false
       pre-test:
@@ -87,12 +101,14 @@ env:
 jobs:
   rust:
     name: Rust (fmt, clippy, test)
+    # Self-hosted runners execute the job's code in the runner VM: forks and Dependabot never get them (the
+    # expression falls back to ubuntu-latest for those events; runner/README.md, "Security").
     if: ${{ vars.CI_ENABLED == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(startsWith(inputs.runner, 'tavrn-') && github.event_name != 'pull_request_target' && github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && format('["self-hosted","linux","x64","{0}"]', inputs.runner) || (startsWith(inputs.runner, 'tavrn-') && '"ubuntu-latest"' || toJSON(inputs.runner))) }}
     services:
       postgres:
-        # An empty image skips the service.
-        image: ${{ inputs.postgres && 'postgres:17-alpine' || '' }}
+        # An empty image skips the service: GitHub-hosted runs only.
+        image: ${{ inputs.postgres && !(startsWith(inputs.runner, 'tavrn-') && github.event_name != 'pull_request_target' && github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]'))) && 'postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24' || '' }}
         env:
           POSTGRES_USER: tavrn
           POSTGRES_PASSWORD: tavrn
@@ -112,30 +128,45 @@ jobs:
             git config --global url."https://x-access-token:${READ_TOKEN}@github.com/just-tavrn/".insteadOf "https://github.com/just-tavrn/"
             echo "fetching just-tavrn repositories with READ_TOKEN"
           fi
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: ${{ inputs.submodules }}
           token: ${{ secrets.READ_TOKEN || github.token }}
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
+        if: ${{ runner.environment == 'github-hosted' }}
         with:
           toolchain: ${{ inputs.toolchain }}
           components: rustfmt, clippy
           targets: ${{ inputs.extra-targets }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: ${{ runner.environment == 'github-hosted' }}
         with:
           workspaces: ${{ inputs.working-directory }}
+      - name: Toolchain of the runner image
+        if: ${{ runner.environment == 'self-hosted' }}
+        env:
+          EXTRA_TARGETS: ${{ inputs.extra-targets }}
+        run: |
+          cargo --version && cargo clippy --version && rustfmt --version
+          installed="$(rustup target list --installed)"
+          for t in ${EXTRA_TARGETS//,/ }; do
+            grep -qx "$t" <<< "$installed" || { echo "::error::target $t is not in the runner image (runner/Dockerfile)"; exit 1; }
+          done
       - name: rustfmt
         run: cargo fmt --all -- --check
       - name: clippy
         env:
           CLIPPY_ARGS: ${{ inputs.clippy-args }}
-        run: cargo clippy $CLIPPY_ARGS -- -D warnings
+        run: |
+          # shellcheck disable=SC2086 # word splitting of the argument list is intended
+          cargo clippy $CLIPPY_ARGS -- -D warnings
       - name: clippy (extra)
         if: ${{ inputs.extra-clippy != '' }}
         env:
           EXTRA_CLIPPY: ${{ inputs.extra-clippy }}
         run: |
+          # shellcheck disable=SC2086 # word splitting of the argument list is intended
           while IFS= read -r line; do
             [ -z "${line// /}" ] && continue
             echo "::group::cargo clippy $line"
@@ -146,8 +177,9 @@ jobs:
         env:
           POSTGRES: ${{ inputs.postgres }}
           TEST_ENV: ${{ inputs.test-env }}
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: |
-          if [ "$POSTGRES" = "true" ]; then
+          if [ "$POSTGRES" = "true" ] && [ "$RUNNER_ENVIRONMENT" = "github-hosted" ]; then
             echo "TAVRN_TEST_DATABASE_URL=postgres://tavrn:tavrn@localhost:5432/tavrn_test" >> "$GITHUB_ENV"
           fi
           if [ -n "$TEST_ENV" ]; then
@@ -161,7 +193,9 @@ jobs:
       - name: test
         env:
           TEST_ARGS: ${{ inputs.test-args }}
-        run: cargo test $TEST_ARGS
+        run: |
+          # shellcheck disable=SC2086 # word splitting of the argument list is intended
+          cargo test $TEST_ARGS
       # The release binary instead of the container action: it sees the git credentials of the runner,
       # which the private git dependencies need.
       - name: cargo-deny

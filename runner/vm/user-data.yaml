@@ -1,0 +1,115 @@
+#cloud-config
+# SPDX-License-Identifier: Apache-2.0
+#
+# cloud-init of the tavrn runner VM (runner/README.md). make-vm.sh fills in the @@...@@ placeholders; do not
+# boot this template as is. Result: Ubuntu 24.04 with Docker Engine, the compose plugin and the Portainer agent,
+# the egress firewall (nftables.conf) with its DNS allowlist (dnsmasq-egress.conf), no shared folders, no host
+# mounts, journal in RAM.
+
+hostname: @@VM_NAME@@
+ssh_pwauth: false
+disable_root: true
+
+users:
+  # Administration over SSH (key only).
+  - name: ciadmin
+    gecos: tavrn CI administration
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    lock_passwd: true
+    ssh_authorized_keys:
+      - "@@SSH_PUBKEY@@"
+  # The uid of the user "runner" inside the runner image: reserved, no login, no sudo, no docker group.
+  - name: github-runner
+    gecos: tavrn runner (container uid)
+    uid: 1001
+    shell: /usr/sbin/nologin
+    lock_passwd: true
+    no_create_home: true
+
+apt:
+  sources:
+    docker.list:
+      source: "deb [arch=amd64 signed-by=$KEY_FILE] https://download.docker.com/linux/ubuntu $RELEASE stable"
+      keyid: 9DC858229FC7DD38854AE2D88D81803C0EBFCD88
+
+package_update: true
+package_upgrade: true
+packages:
+  - nftables
+  - dnsmasq
+  - qemu-guest-agent
+  - unattended-upgrades
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-buildx-plugin
+  - docker-compose-plugin
+
+write_files:
+  - path: /etc/nftables.conf
+    permissions: "0644"
+    encoding: b64
+    content: @@NFTABLES_B64@@
+  - path: /etc/dnsmasq.d/tavrn-egress.conf
+    permissions: "0644"
+    encoding: b64
+    content: @@DNSMASQ_B64@@
+  - path: /etc/systemd/system/dnsmasq.service.d/tavrn.conf
+    permissions: "0644"
+    content: |
+      [Unit]
+      # The nftables sets must exist before dnsmasq fills them.
+      After=nftables.service
+      Wants=nftables.service
+  - path: /etc/docker/daemon.json
+    permissions: "0644"
+    content: |
+      {
+        "bip": "172.17.0.1/16",
+        "dns": ["172.17.0.1"],
+        "log-driver": "local",
+        "log-opts": { "max-size": "20m", "max-file": "3" }
+      }
+  - path: /etc/systemd/journald.conf.d/tavrn.conf
+    permissions: "0644"
+    content: |
+      [Journal]
+      # Logs in RAM: the VM writes as little as possible to the host's disk.
+      Storage=volatile
+      RuntimeMaxUse=1G
+  - path: /etc/apt/apt.conf.d/52tavrn-unattended
+    permissions: "0644"
+    content: |
+      Unattended-Upgrade::Automatic-Reboot "true";
+      Unattended-Upgrade::Automatic-Reboot-Time "04:30";
+  - path: /usr/local/sbin/tavrn-portainer-agent
+    permissions: "0700"
+    content: |
+      #!/bin/sh
+      # (Re)creates the Portainer agent (host network: the firewall's input chain limits port 9001 to ADMIN_V4).
+      set -eu
+      docker rm -f portainer_agent >/dev/null 2>&1 || true
+      exec docker run -d --name portainer_agent --restart=always --network host \
+        @@AGENT_SECRET_ARG@@ \
+        -v /var/run/docker.sock:/var/run/docker.sock \
+        -v /var/lib/docker/volumes:/var/lib/docker/volumes \
+        -v /:/host \
+        "@@PORTAINER_AGENT_IMAGE@@"
+
+runcmd:
+  # dnsmasq becomes the only resolver (systemd-resolved would let lookups bypass the allowlist).
+  - systemctl disable --now systemd-resolved
+  - rm -f /etc/resolv.conf
+  - printf 'nameserver 127.0.0.1\noptions edns0 trust-ad\n' > /etc/resolv.conf
+  - systemctl daemon-reload
+  - systemctl enable --now nftables
+  - systemctl enable dnsmasq
+  - systemctl restart dnsmasq
+  - systemctl restart docker
+  - systemctl enable --now qemu-guest-agent
+  - /usr/local/sbin/tavrn-portainer-agent
+  - nft list table inet tavrn_egress > /dev/null
+
+final_message: "tavrn runner VM ready after $UPTIME s: add it to Portainer as an agent environment (port 9001)."

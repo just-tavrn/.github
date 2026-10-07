@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Checks that every script and workflow of this repository carries its SPDX header (LICENSE.md):
-# `# SPDX-License-Identifier: <id>` as the first line, or the second line after a shebang.
+# `# SPDX-License-Identifier: <id>` as the first line, or the second line after a shebang, a Dockerfile
+# `# syntax=` directive or `#cloud-config`.
 # Documents, templates and small configuration files get their license from LICENSE.md and carry no header.
 # Usage: scripts/check-spdx.sh [--fix]   (--fix inserts missing headers; wrong ones are only reported)
 set -euo pipefail
@@ -15,6 +16,7 @@ fix=0
 license_for() {
   case "$1" in
     .github/workflows/*.yml | scripts/*.sh) echo Apache-2.0 ;;
+    runner/Dockerfile | runner/*.sh | runner/*.yml | runner/*.conf | runner/*.yaml) echo Apache-2.0 ;;
     *) echo skip ;;
   esac
 }
@@ -35,7 +37,9 @@ for file in "${files[@]}"; do
   [ "$expected" = skip ] && continue
   header="# SPDX-License-Identifier: $expected"
   line=1
-  [[ "$(head -n 1 "$file")" == '#!'* ]] && line=2
+  first="$(head -n 1 "$file")"
+  # A shebang, a Dockerfile parser directive or the cloud-config marker must stay on line 1.
+  [[ "$first" == '#!'* || "$first" == '# syntax='* || "$first" == '#cloud-config' ]] && line=2
   actual=$(sed -n "${line}p" "$file")
   [ "$actual" = "$header" ] && continue
   if [[ "$actual" == '# SPDX-License-Identifier:'* ]]; then

@@ -1,0 +1,259 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Self-hosted GitHub Actions runners for the just-tavrn organization (runner/README.md). Deploy as a Portainer
+# stack INSIDE the dedicated runner VM (runner/vm/), with the variables of .env.example.
+#
+#   runner-heavy  Rust, JavaScript and docker jobs (label tavrn-heavy), RUNNER_HEAVY_REPLICAS containers
+#   runner-e2e    Playwright end-to-end jobs (label tavrn-e2e), RUNNER_E2E_REPLICAS containers
+#   dind          Docker engine for the jobs (docker build, docker pull), TLS, only on the internal network
+#   postgres      PostgreSQL for the Rust tests (TAVRN_TEST_DATABASE_URL), only on the internal network
+#   housekeeping  keeps the RAM caches mounted between ephemeral runner restarts, drops old test databases
+#
+# Everything the stack writes lives in RAM (tmpfs): work directories, caches, DinD's /var/lib/docker and the
+# database. A reboot loses all of it, which is intended; nothing needs to be restored. The tmpfs sizes are
+# upper limits, not reservations (memory math in runner/README.md).
+#
+# The runners are ephemeral: each one takes a single job, deregisters and exits; "restart: unless-stopped"
+# starts the same container again, which registers a fresh runner. No container mounts the Docker socket of
+# the VM; the jobs use the stack's DinD through DOCKER_HOST.
+
+name: tavrn-runner
+
+x-runner: &runner
+  image: ${RUNNER_IMAGE:?set RUNNER_IMAGE (runner/.env.example)}
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  depends_on:
+    dind:
+      condition: service_healthy
+    postgres:
+      condition: service_healthy
+    housekeeping:
+      condition: service_started
+  networks:
+    - internal
+    - egress
+  shm_size: 2g
+  ulimits:
+    nofile:
+      soft: 65536
+      hard: 65536
+  volumes:
+    - cache:/cache
+    - dind-certs:/certs:ro
+  healthcheck:
+    test: ["CMD-SHELL", "pgrep -f Runner.Listener >/dev/null"]
+    interval: 30s
+    timeout: 5s
+    retries: 3
+    start_period: 120s
+  logging:
+    driver: local
+    options:
+      max-size: 20m
+      max-file: "3"
+
+x-runner-env: &runner-env
+  # Registration (myoung34/github-runner): an organization runner, one job per registration.
+  RUNNER_SCOPE: org
+  ORG_NAME: ${ORG_NAME:-just-tavrn}
+  RUNNER_GROUP: ${RUNNER_GROUP:-Default}
+  EPHEMERAL: "true"
+  # The image is pinned; GitHub's runner updates arrive with a rebuilt image (README, "Updating").
+  DISABLE_AUTO_UPDATE: "true"
+  RUN_AS_ROOT: "false"
+  UNSET_CONFIG_VARS: "true"
+  RANDOM_RUNNER_SUFFIX: "true"
+  # Exactly one of: GitHub App (recommended), ACCESS_TOKEN, or a one-hour RUNNER_TOKEN (README, "Credentials").
+  APP_ID: ${APP_ID:-}
+  APP_PRIVATE_KEY: ${APP_PRIVATE_KEY:-}
+  APP_LOGIN: ${APP_LOGIN:-}
+  ACCESS_TOKEN: ${ACCESS_TOKEN:-}
+  RUNNER_TOKEN: ${RUNNER_TOKEN:-}
+  # Docker for the jobs: the stack's DinD over TLS.
+  DOCKER_HOST: tcp://dind:2376
+  DOCKER_TLS_VERIFY: "1"
+  DOCKER_CERT_PATH: /certs/client
+  # Tests (the cache slot paths, CARGO_HOME and the private Valkey come from the image's entrypoint).
+  TAVRN_TEST_DATABASE_URL: postgres://tavrn:tavrn@postgres:5432/tavrn_test
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  TAVRN_TARGET_MAX_GB: ${RUNNER_TARGET_MAX_GB:-40}
+
+services:
+  runner-heavy:
+    <<: *runner
+    deploy:
+      replicas: ${RUNNER_HEAVY_REPLICAS:-2}
+    mem_limit: ${RUNNER_HEAVY_MEMORY:-128g}
+    memswap_limit: ${RUNNER_HEAVY_MEMORY:-128g}
+    cpus: ${RUNNER_HEAVY_CPUS:-16}
+    tmpfs:
+      - /_work:size=${RUNNER_WORK_SIZE:-64g},exec,mode=0755,uid=1001,gid=121
+      - /tmp:size=${RUNNER_TMP_SIZE:-16g},exec,mode=1777
+      - /home/runner:size=4g,exec,mode=0750,uid=1001,gid=121
+      - /actions-runner/_diag:size=1g,mode=0755,uid=1001,gid=121
+    environment:
+      <<: *runner-env
+      RUNNER_NAME_PREFIX: ${RUNNER_NAME_PREFIX:-tavrn}-heavy
+      LABELS: self-hosted,linux,x64,tavrn-heavy
+      TAVRN_RUNNER_CLASS: heavy
+      CARGO_BUILD_JOBS: ${RUNNER_HEAVY_CARGO_JOBS:-16}
+
+  runner-e2e:
+    <<: *runner
+    deploy:
+      replicas: ${RUNNER_E2E_REPLICAS:-1}
+    mem_limit: ${RUNNER_E2E_MEMORY:-48g}
+    memswap_limit: ${RUNNER_E2E_MEMORY:-48g}
+    cpus: ${RUNNER_E2E_CPUS:-8}
+    tmpfs:
+      - /_work:size=${RUNNER_E2E_WORK_SIZE:-32g},exec,mode=0755,uid=1001,gid=121
+      - /tmp:size=${RUNNER_TMP_SIZE:-16g},exec,mode=1777
+      - /home/runner:size=4g,exec,mode=0750,uid=1001,gid=121
+      - /actions-runner/_diag:size=1g,mode=0755,uid=1001,gid=121
+    environment:
+      <<: *runner-env
+      RUNNER_NAME_PREFIX: ${RUNNER_NAME_PREFIX:-tavrn}-e2e
+      LABELS: self-hosted,linux,x64,tavrn-e2e
+      TAVRN_RUNNER_CLASS: e2e
+      CARGO_BUILD_JOBS: ${RUNNER_E2E_CARGO_JOBS:-8}
+
+  dind:
+    image: docker:29-dind@sha256:7dcdfc4a20246236f558175182ccace1eb15a41bd3eb119dd2284f393498b7c1
+    # Privileged is what DinD needs; it is why the stack runs inside a dedicated VM (runner/vm/).
+    privileged: true
+    restart: unless-stopped
+    hostname: dind
+    environment:
+      DOCKER_TLS_CERTDIR: /certs
+    # Resolver for the job containers inside DinD (their default bridge cannot use Docker's embedded DNS);
+    # in the VM this is the egress-filtering dnsmasq on docker0 (runner/vm/).
+    command: ["--dns", "${DIND_DNS:-172.17.0.1}"]
+    mem_limit: ${DIND_MEMORY:-48g}
+    memswap_limit: ${DIND_MEMORY:-48g}
+    tmpfs:
+      - /var/lib/docker:size=${DIND_STORAGE_SIZE:-32g},exec,mode=0710
+      - /tmp:size=4g,mode=1777
+    volumes:
+      - dind-certs:/certs
+    networks:
+      - internal
+      - dind-egress
+    healthcheck:
+      test: ["CMD", "docker", "info", "--format", "{{.ServerVersion}}"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    logging:
+      driver: local
+      options:
+        max-size: 20m
+        max-file: "3"
+
+  postgres:
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tavrn
+      POSTGRES_PASSWORD: tavrn
+      POSTGRES_DB: tavrn_test
+    # A throwaway test database: durability off, many connections (every test creates its own t_* database).
+    command:
+      - postgres
+      - -c
+      - max_connections=${POSTGRES_MAX_CONNECTIONS:-600}
+      - -c
+      - fsync=off
+      - -c
+      - synchronous_commit=off
+      - -c
+      - full_page_writes=off
+      - -c
+      - shared_buffers=${POSTGRES_SHARED_BUFFERS:-2GB}
+    shm_size: 1g
+    mem_limit: ${POSTGRES_MEMORY:-24g}
+    memswap_limit: ${POSTGRES_MEMORY:-24g}
+    tmpfs:
+      - /var/lib/postgresql/data:size=${POSTGRES_DATA_SIZE:-16g},mode=0700
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "tavrn", "-d", "tavrn_test"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging:
+      driver: local
+      options:
+        max-size: 20m
+        max-file: "3"
+
+  housekeeping:
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    restart: unless-stopped
+    # Mounting the tmpfs volumes keeps them alive while every runner restarts (Docker unmounts a tmpfs volume,
+    # and loses its content, when no container uses it). Every 10 minutes it drops the tests' t_* databases
+    # that are older than TEST_DB_MAX_AGE_HOURS (the tests never drop them).
+    environment:
+      PGHOST: postgres
+      PGUSER: tavrn
+      PGPASSWORD: tavrn
+      PGDATABASE: tavrn_test
+      MAX_AGE_HOURS: ${TEST_DB_MAX_AGE_HOURS:-3}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          psql -X -q -v ON_ERROR_STOP=0 -v max_age="$$MAX_AGE_HOURS" <<'SQL' || true
+        SELECT format('DROP DATABASE IF EXISTS %I WITH (FORCE)', datname)
+          FROM pg_database
+         WHERE datname LIKE 't\_%'
+           AND (pg_stat_file('base/' || oid || '/PG_VERSION')).modification
+               < now() - make_interval(hours => :max_age)
+        \gexec
+        SQL
+          sleep 600
+        done
+    volumes:
+      - cache:/cache
+      - dind-certs:/certs
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging:
+      driver: local
+      options:
+        max-size: 5m
+        max-file: "2"
+
+volumes:
+  # Shared RAM cache of all runners (Cargo registry, pnpm store, Playwright browsers, one target directory
+  # per cache slot). uid 1001 / gid 121 is the user "runner" of the image.
+  cache:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=${RUNNER_CACHE_SIZE:-128g},uid=1001,gid=121,mode=0755
+  # DinD's TLS material (CA, server, client); the runners mount it read-only and use /certs/client.
+  dind-certs:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=16m,mode=0755
+
+networks:
+  # Runners, DinD, PostgreSQL. No route to the outside: DinD and PostgreSQL are unreachable from anywhere else.
+  internal:
+    internal: true
+  # Outbound access of the runners (GitHub, registries).
+  egress: {}
+  # Outbound access of DinD (image pulls, builds); the runners are not on it.
+  dind-egress: {}

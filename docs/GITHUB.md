@@ -108,31 +108,22 @@ in release-train order: `.github` (this repository), `tavrn-protocol`, `tavrn-cr
 `tavrn-node`, `tavrn-web`. Private repositories use the Free plan's Actions minutes (2,000 per month); set it
 back to `false` to stop everything.
 
-## 5. Self-hosted runner `tavrn-e2e` (test host)
+## 5. Self-hosted runners (test host)
 
-The end-to-end suite (`e2e.yml`) runs on a runner on the owner's test host, labelled `tavrn-e2e`.
+The heavy CI jobs (`tavrn-heavy`: Rust, JavaScript, container builds) and the end-to-end suite (`tavrn-e2e`)
+run on ephemeral self-hosted runners in a dedicated VM on the owner's test host, deployed as a Portainer
+stack. Setup, credentials, network isolation, memory sizing and updates: [runner/README.md](../runner/README.md).
+In short:
 
-1. On the test host (Linux x64), install `git`, `curl`, Docker, Node 24 and pnpm (`corepack enable pnpm`).
-   Create a dedicated user without sudo rights, for example `github-runner`, and add it to the `docker`
-   group (that group is root-equivalent: use a host or VM that serves nothing else of value).
-2. Install the browser system dependencies once as root: `npx -y playwright install-deps chromium`.
-3. Organization **Settings** → **Actions** → **Runner groups**: if the plan offers custom groups, create
-   `tavrn-e2e` with **Selected repositories: tavrn-web** and **Allow public repositories** unticked;
-   otherwise the runner goes into the **Default** group.
-4. Organization **Settings** → **Actions** → **Runners** → **New runner** → **New self-hosted runner** →
-   **Linux**, **x64**. Run the shown download and checksum commands as `github-runner` in
-   `/opt/actions-runner`, then configure with the shown token:
-   ```bash
-   ./config.sh --url https://github.com/just-tavrn --token <TOKEN> \
-     --name tavrn-e2e-1 --labels tavrn-e2e --runnergroup tavrn-e2e --work _work --unattended
-   sudo ./svc.sh install github-runner
-   sudo ./svc.sh start
-   ```
-   (`--runnergroup Default` when step 3 was not possible.)
-5. Check that the runner shows **Idle** with the labels `self-hosted`, `Linux`, `X64`, `tavrn-e2e`.
-6. Keep the runner off fork pull requests: the e2e callers run on pushes to `main` and by hand
-   (`workflow_dispatch`), never on `pull_request` events of forks. A self-hosted runner executes the code it
-   is given on the test host.
+1. Host network: a VLAN/bridge for the VM that reaches only the WAN (README, "1. Host network").
+2. The VM: `runner/vm/make-vm.sh` (README, "2. The VM").
+3. A GitHub App (or a fine-grained PAT) with the organization permission **Self-hosted runners: Read and
+   write** for the runner registration (README, "Credentials").
+4. Make the package `ghcr.io/just-tavrn/tavrn-runner` public after its first build (`runner-image.yml`).
+5. The Portainer stack `runner/docker-compose.yml` with the variables of `runner/.env.example`.
+6. Organization **Settings** → **Actions** → **Runner groups** → **Default**: the Free plan has no custom
+   groups; tick **Allow public repositories** only when the repositories go public (the workflows keep forks
+   and Dependabot off the self-hosted runners).
 
 ## 6. Community: Discussions, labels, profile
 
