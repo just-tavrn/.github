@@ -147,6 +147,8 @@ jobs:
         if: ${{ inputs.pre-test != '' }}
         env:
           PRE_TEST: ${{ inputs.pre-test }}
+          # Lets the script skip what the self-hosted runner image already provides (runner/README.md).
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: bash -euo pipefail -c "$PRE_TEST"
       - name: SPDX headers
         if: ${{ inputs.spdx-check != '' }}
