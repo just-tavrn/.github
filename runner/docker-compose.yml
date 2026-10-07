@@ -201,13 +201,14 @@ services:
     restart: unless-stopped
     # Mounting the tmpfs volumes keeps them alive while every runner restarts (Docker unmounts a tmpfs volume,
     # and loses its content, when no container uses it). Every 10 minutes it drops the tests' t_* databases
-    # that are older than TEST_DB_MAX_AGE_HOURS (the tests never drop them).
+    # that are older than TEST_DB_MAX_AGE_HOURS: a backstop, the tests drop their own databases and sweep the
+    # leftovers of killed runs themselves (tavrn-node tests/common/databases.rs).
     environment:
       PGHOST: postgres
       PGUSER: tavrn
       PGPASSWORD: tavrn
       PGDATABASE: tavrn_test
-      MAX_AGE_HOURS: ${TEST_DB_MAX_AGE_HOURS:-3}
+      MAX_AGE_HOURS: ${TEST_DB_MAX_AGE_HOURS:-1}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
