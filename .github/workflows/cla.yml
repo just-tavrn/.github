@@ -62,7 +62,7 @@ jobs:
           branch: main
           remote-organization-name: just-tavrn
           remote-repository-name: cla-signatures
-          allowlist: dependabot[bot],renovate[bot]
+          allowlist: babatonga,dependabot[bot],renovate[bot]
           lock-pullrequest-aftermerge: false
           custom-notsigned-prcomment: >-
             Thank you for your contribution. Before we can merge it, please read the
