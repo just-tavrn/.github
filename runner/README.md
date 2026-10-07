@@ -320,6 +320,7 @@ repository is private and every committer is trusted.
 | Jobs stay queued | labels (`tavrn-heavy`, `tavrn-e2e`), runner group allows the repository (public repositories!), runner version older than 30 days (update the image) |
 | `Cannot connect to the Docker daemon at tcp://dind:2376` | `dind` healthy? Restart `dind`; `housekeeping` keeps the TLS material, so the runners' client certificates stay valid |
 | Downloads fail with "connection refused" or hang | `sudo journalctl -k \| grep tavrn-egress` in the VM; add the domain to `dnsmasq-egress.conf`; DinD containers need `DIND_DNS=172.17.0.1` |
+| `docker pull` in a job fails with `lookup … on 127.0.0.11:53: server misbehaving` (SERVFAIL) | the inner daemon's bridge shadows the resolver address: `docker exec tavrn-runner-dind-1 ip addr show docker0` must not show 172.17.0.1 (the stack sets `--bip 10.200.0.1/16`); redeploy the stack after updating the compose file |
 | Container killed with exit code 137 | OOM: tmpfs content counts against `mem_limit`; raise the limit or lower the tmpfs sizes |
 | `no space left on device` in a build | `RUNNER_WORK_SIZE`, `RUNNER_CACHE_SIZE`, `DIND_STORAGE_SIZE` or `POSTGRES_DATA_SIZE` (lower `TEST_DB_MAX_AGE_HOURS`) |
 | VM has no network | Docker's `br_netfilter` on the host: the `DOCKER-USER` rule above; the VLAN tagged on both trunk ports of a managed switch; `bridge link show` lists the VLAN interface and the VM's `vnetN` in `br-ci` |

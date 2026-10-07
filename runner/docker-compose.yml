@@ -130,8 +130,12 @@ services:
     environment:
       DOCKER_TLS_CERTDIR: /certs
     # Resolver for the job containers inside DinD (their default bridge cannot use Docker's embedded DNS);
-    # in the VM this is the egress-filtering dnsmasq on docker0 (runner/vm/).
-    command: ["--dns", "${DIND_DNS:-172.17.0.1}"]
+    # in the VM this is the egress-filtering dnsmasq on docker0 (runner/vm/). The inner daemon's own bridge
+    # and address pool must stay away from 172.17.0.0/16: with Docker's defaults the inner docker0 would
+    # take 172.17.0.1 itself and every lookup (the daemon's pulls and the job containers) would end in
+    # SERVFAIL. The 10.200/10.201 ranges are outside Docker's default pools, so they never collide with the
+    # VM's networks either.
+    command: ["--dns", "${DIND_DNS:-172.17.0.1}", "--bip", "10.200.0.1/16", "--default-address-pool", "base=10.201.0.0/16,size=24"]
     mem_limit: ${DIND_MEMORY:-48g}
     memswap_limit: ${DIND_MEMORY:-48g}
     tmpfs:
