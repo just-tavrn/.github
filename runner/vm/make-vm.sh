@@ -115,6 +115,9 @@ network:
       routes:
         - to: default
           via: $VM_GATEWAY
+      # Resolver for the first boot (package installation); afterwards dnsmasq takes over (user-data runcmd).
+      nameservers:
+        addresses: [$(echo "$DNS_UPSTREAM" | tr -d ' ')]
 NET
 else
   grep -v '^#' "$here/network-config.yaml" | sed -e "s|@@VM_MAC@@|$VM_MAC|" > "$OUT_DIR/network-config"
