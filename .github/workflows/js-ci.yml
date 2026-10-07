@@ -104,9 +104,15 @@ jobs:
           fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          submodules: ${{ inputs.submodules }}
-          token: ${{ secrets.READ_TOKEN || github.token }}
+          # The repository itself is fetched with the job's own token (READ_TOKEN need not cover it); the
+          # private submodules follow in the next step through the READ_TOKEN URL rewrite above.
+          submodules: false
+          token: ${{ github.token }}
           persist-credentials: false
+      - name: Submodules
+        if: ${{ inputs.submodules != '' && inputs.submodules != 'false' }}
+        working-directory: .
+        run: git submodule update --init ${{ inputs.submodules == 'recursive' && '--recursive' || '' }}
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
         if: ${{ inputs.rust-wasm && runner.environment == 'github-hosted' }}
         with:
