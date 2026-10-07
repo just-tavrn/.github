@@ -162,6 +162,11 @@ write_files:
         -v /:/host \
         "@@PORTAINER_AGENT_IMAGE@@"
 
+# The egress allow-list is filled by dnsmasq, which does not exist before the packages are installed: keep the
+# firewall down until runcmd enables it (bootcmd runs before the package stage on the first boot).
+bootcmd:
+  - [sh, -c, "systemctl disable --now nftables >/dev/null 2>&1; command -v nft >/dev/null && nft flush ruleset; true"]
+
 runcmd:
   # dnsmasq becomes the only resolver (systemd-resolved would let lookups bypass the allowlist).
   - systemctl disable --now systemd-resolved
