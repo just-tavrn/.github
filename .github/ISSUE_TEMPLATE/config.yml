@@ -1,7 +1,7 @@
 blank_issues_enabled: false
 contact_links:
   - name: Questions and ideas
-    url: https://github.com/just-tavrn/.github/discussions
+    url: https://github.com/just-tavrn/tavrn/discussions
     about: Ask questions, get help with setting up a node, and discuss ideas in Discussions.
   - name: Report a security vulnerability
     url: https://github.com/just-tavrn/.github/blob/main/SECURITY.md

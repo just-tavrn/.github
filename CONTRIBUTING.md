@@ -16,7 +16,7 @@ Please read the [code of conduct](CODE_OF_CONDUCT.md) first; security issues go 
 | [tavrn-web](https://github.com/just-tavrn/tavrn-web) | the web client, later the desktop and mobile apps, and the end-to-end tests |
 | [.github](https://github.com/just-tavrn/.github) | these organization-wide documents and the shared CI workflows |
 
-- **Not sure where it belongs?** Open a [discussion](https://github.com/just-tavrn/.github/discussions)
+- **Not sure where it belongs?** Open a [discussion](https://github.com/just-tavrn/tavrn/discussions)
   instead of guessing; we move it to the right place.
 - **Questions and support** go to Discussions as well (see [SUPPORT.md](SUPPORT.md)), not to issues.
 - **Protocol changes start in tavrn-protocol.** A change to the API, the message format, federation or the

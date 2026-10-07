@@ -1,6 +1,6 @@
 # Getting help
 
-- **Questions, setup help, ideas:** ask in [Discussions](https://github.com/just-tavrn/.github/discussions).
+- **Questions, setup help, ideas:** ask in [Discussions](https://github.com/just-tavrn/tavrn/discussions).
   Search first; your question may already have an answer.
 - **Running a node:** the operator documentation is in the README of
   [tavrn-node](https://github.com/just-tavrn/tavrn-node) (installation, reverse proxy, voice, federation,

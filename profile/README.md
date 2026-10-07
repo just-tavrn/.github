@@ -27,7 +27,7 @@ CI workflows.
 
 ## Get in touch
 
-- **Questions, ideas, show and tell:** [Discussions](https://github.com/just-tavrn/.github/discussions).
+- **Questions, ideas, show and tell:** [Discussions](https://github.com/just-tavrn/tavrn/discussions).
 - **Bugs and feature requests:** an issue in the repository of the affected component (unsure? start a
   discussion).
 - **Security vulnerabilities:** never in public issues; report them privately as described in the
