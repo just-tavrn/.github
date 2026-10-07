@@ -1,0 +1,58 @@
+name: Feature request
+description: Suggest an improvement or a new feature.
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. Larger or open-ended ideas are often better discussed in Discussions first; changes to the protocol start in tavrn-protocol.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Node server (tavrn-node)
+        - Web client (tavrn-web)
+        - Encryption core (tavrn-crypto)
+        - SDK, E2EE or bot packages (tavrn-js)
+        - Protocol specification (tavrn-protocol)
+        - Deployment, container image or documentation
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what stops you today? Describe the need, not only the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How could tavrn solve it? Mockups or examples welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Other approaches or workarounds you considered.
+  - type: checkboxes
+    id: impact
+    attributes:
+      label: Impact
+      options:
+        - label: This needs a change to the protocol (API, message format, federation or encryption).
+        - label: This would change existing behaviour for users or node operators (breaking change).
+        - label: I would like to work on this myself.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched the existing issues and discussions.
+          required: true
+        - label: I agree to follow the code of conduct.
+          required: true

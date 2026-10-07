@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# The CLA check for pull requests to this repository (the same reusable workflow the code repositories call).
+name: CLA
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened, closed, synchronize]
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: write
+  statuses: write
+
+jobs:
+  cla:
+    if: ${{ vars.CI_ENABLED == 'true' }}
+    uses: ./.github/workflows/cla.yml
+    secrets:
+      CLA_PAT: ${{ secrets.CLA_PAT }}

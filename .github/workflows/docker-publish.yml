@@ -1,0 +1,138 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Reusable container build and publish to the GitHub Container Registry (ghcr.io/just-tavrn/<image>).
+# The image gets BuildKit's SLSA provenance (mode=max) and an SBOM as attestations in the registry; there is
+# no cosign signing. Pushing happens only when the caller sets push: true AND the run is on main or a v* tag;
+# everything else (pull requests, branches) builds without pushing. On the self-hosted runners
+# (runner: tavrn-heavy) buildx builds in the stack's DinD (DOCKER_HOST).
+#
+# Caller (tavrn-node, .github/workflows/release.yml):
+#   on:
+#     push:
+#       tags: ["v*"]
+#   permissions:
+#     contents: read
+#     packages: write
+#   jobs:
+#     image:
+#       if: ${{ vars.CI_ENABLED == 'true' }}
+#       uses: just-tavrn/.github/.github/workflows/docker-publish.yml@main
+#       with:
+#         dockerfile: deploy/Dockerfile
+#         image-name: tavrn-node
+#         push: true
+#         runner: tavrn-heavy
+#       secrets:
+#         READ_TOKEN: ${{ secrets.TAVRN_READ_PAT }}
+name: Docker publish (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: >-
+          Where the job runs: a GitHub-hosted label (default ubuntu-latest) or a self-hosted runner class of the
+          tavrn runner stack (tavrn-heavy, runner/README.md). Self-hosted only for trusted events: pushes, manual
+          and scheduled runs, and pull requests from branches of the calling repository; pull requests from forks
+          and from Dependabot always run on ubuntu-latest.
+        type: string
+        default: ubuntu-latest
+      dockerfile:
+        description: Path of the Dockerfile, relative to the repository root.
+        type: string
+        default: Dockerfile
+      context:
+        description: Build context.
+        type: string
+        default: "."
+      image-name:
+        description: Image name below ghcr.io/just-tavrn/ (for example tavrn-node).
+        type: string
+        required: true
+      platforms:
+        description: Target platforms, comma-separated.
+        type: string
+        default: linux/amd64
+      build-args:
+        description: Build arguments, KEY=value lines.
+        type: string
+        default: ""
+      push:
+        description: Push to ghcr.io (only on main and on v* tags).
+        type: boolean
+        default: false
+      submodules:
+        description: Checkout submodules (false, true or recursive).
+        type: string
+        default: recursive
+    secrets:
+      READ_TOKEN:
+        description: Optional token with read access to the private just-tavrn repositories (submodules; passed to the build as the secret "read_token").
+        required: false
+    outputs:
+      digest:
+        description: Digest of the built image.
+        value: ${{ jobs.image.outputs.digest }}
+      tags:
+        description: Tags of the built image.
+        value: ${{ jobs.image.outputs.tags }}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    name: Container image (${{ inputs.image-name }})
+    # Self-hosted runners execute the job's code in the runner VM: forks and Dependabot never get them (the
+    # expression falls back to ubuntu-latest for those events; runner/README.md, "Security").
+    if: ${{ vars.CI_ENABLED == 'true' }}
+    runs-on: ${{ fromJSON(startsWith(inputs.runner, 'tavrn-') && github.event_name != 'pull_request_target' && github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && format('["self-hosted","linux","x64","{0}"]', inputs.runner) || (startsWith(inputs.runner, 'tavrn-') && '"ubuntu-latest"' || toJSON(inputs.runner))) }}
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      tags: ${{ steps.meta.outputs.tags }}
+    env:
+      DO_PUSH: ${{ inputs.push && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: ${{ inputs.submodules }}
+          token: ${{ secrets.READ_TOKEN || github.token }}
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Log in to ghcr.io
+        if: ${{ env.DO_PUSH == 'true' }}
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/just-tavrn/${{ inputs.image-name }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=edge,branch=main
+            type=sha,format=short
+            type=ref,event=pr
+          labels: |
+            org.opencontainers.image.vendor=tavrn
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          platforms: ${{ inputs.platforms }}
+          build-args: ${{ inputs.build-args }}
+          push: ${{ env.DO_PUSH == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          provenance: mode=max
+          sbom: true
+          # Only set when the caller passes READ_TOKEN (RUN --mount=type=secret,id=read_token in the Dockerfile).
+          secrets: ${{ secrets.READ_TOKEN != '' && format('read_token={0}', secrets.READ_TOKEN) || '' }}
+          cache-from: type=gha,scope=${{ inputs.image-name }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.image-name }}

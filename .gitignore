@@ -1,0 +1,28 @@
+# Private files that never belong in a tavrn repository
+.claude/
+docs/PLAN.md
+MEMORY.md
+memory/
+data-dev/
+data/
+pgdata/
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+test-results/
+playwright-report/
+.publish-check.private
+
+# Build output
+target/
+node_modules/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store

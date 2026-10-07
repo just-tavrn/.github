@@ -1,0 +1,19 @@
+# Dependabot version updates of this repository: the actions pinned by commit SHA in the workflows, and the
+# images pinned by digest in the runner stack (runner/Dockerfile, runner/docker-compose.yml).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: docker
+    directory: /runner
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker-compose
+    directory: /runner
+    schedule:
+      interval: weekly
