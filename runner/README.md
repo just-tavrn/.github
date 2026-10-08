@@ -288,7 +288,7 @@ experimental upstream). What the image adds for it:
 | Purpose | In the image |
 |---|---|
 | Linux build and bundles (deb, AppImage) | `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`, `patchelf`, `xdg-utils`, `file` |
-| WebDriver tests of the Linux build | `webkit2gtk-driver, `xdotool` (the smoke test presses global hotkeys through the X server), `gnome-keyring` (Secret Service round trip of the keychain test inside `dbus-run-session`)` (`WebKitWebDriver`), `xvfb` (`xvfb-run`), `tauri-driver` (`TAURI_DRIVER_VERSION`) |
+| WebDriver tests of the Linux build | `webkit2gtk-driver` (`WebKitWebDriver`), `xvfb` (`xvfb-run`), `tauri-driver` (`TAURI_DRIVER_VERSION`), `xdotool` (the smoke test presses global hotkeys through the X server), `gnome-keyring` (Secret Service round trip of the keychain test inside `dbus-run-session`) |
 | Windows build | Rust target `x86_64-pc-windows-msvc`, `cargo-xwin` (`CARGO_XWIN_VERSION`), `clang` (as `clang-cl`), `lld` (`lld-link`), `llvm` (`llvm-lib`, `llvm-rc`), `nsis` (`makensis`); `XWIN_ARCH=x86_64`, `XWIN_VARIANT=desktop` |
 
 ```bash
