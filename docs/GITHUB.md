@@ -43,9 +43,13 @@ Organization **Settings** → **Actions** → **General**:
      contributor-assistant/github-action@*,
      dtolnay/rust-toolchain@*,
      Swatinem/rust-cache@*,
-     pnpm/action-setup@*
+     pnpm/action-setup@*,
+     taiki-e/install-action@*
      ```
    Actions and reusable workflows from `just-tavrn` repositories are always allowed by this policy.
+   (`taiki-e/install-action` installs cargo-deny and tauri-driver in tavrn-web's GitHub-hosted desktop builds.)
+   Tick **Require actions to be pinned to a full-length commit SHA** as well once every workflow pins its
+   actions; the organization's reusable workflows are called by branch (`@main`) and are not actions.
 2. **Fork pull request workflows from outside collaborators** (applies once public): **Require approval for
    all external contributors**. For private repositories leave **Run workflows from fork pull requests**
    unticked.
@@ -123,18 +127,21 @@ In short:
 4. Make the package `ghcr.io/just-tavrn/tavrn-runner` public after its first build (`runner-image.yml`).
 5. The Portainer stack `runner/docker-compose.yml` with the variables of `runner/.env.example`.
 6. Organization **Settings** → **Actions** → **Runner groups** → **Default**: the Free plan has no custom
-   groups; tick **Allow public repositories** only when the repositories go public (the workflows keep forks
-   and Dependabot off the self-hosted runners).
+   groups; tick **Allow public repositories** only when the repositories go public. The workflows keep forks
+   and Dependabot off the self-hosted runners only as long as their workflow files are unchanged: a fork pull
+   request runs its own copy, so the approval of step 2.2 is the real barrier (runner/README.md, "Security").
 7. Desktop builds (tavrn-web's Tauri app): the `tavrn-heavy` runners download the Microsoft CRT and Windows SDK
    into their cache at start, under Microsoft's Visual Studio Build Tools license (README, "Desktop builds");
    the VM's egress allowlist needs `aka.ms` and `download.visualstudio.microsoft.com` for it.
 
 ## 6. Community: Discussions, labels, profile
 
-1. **Discussions** on this repository are enabled (API). Create the categories **Q&A** (answers marked),
-   **Ideas**, **Show and tell** and **Announcements** (maintainers only).
-2. Once this repository is public: organization **Settings** → **Discussions** → **Enable discussions for
-   this organization**, source repository **.github**.
+1. **Discussions** live in the umbrella repository `just-tavrn/tavrn` (its `docs/GITHUB.md` lists the
+   categories); the profile, `CONTRIBUTING.md`, `SUPPORT.md` and every issue chooser link there. Discussions on
+   this repository were enabled at creation and are switched off (`gh api -X PATCH repos/just-tavrn/.github
+   -F has_discussions=false`), so there is only one place.
+2. Once the repositories are public: organization **Settings** → **Discussions** → **Enable discussions for
+   this organization**, source repository **tavrn**.
 3. Labels: `scripts/github-labels.sh just-tavrn/<repo>` creates the common label set (applied to this
    repository; the code repositories have their own copy). Optionally mirror the list under organization
    **Settings** → **Repository defaults** → **Repository labels** so new repositories start with it.
@@ -161,7 +168,8 @@ Organization **Settings** → **Code security** → **Configurations** (or **Glo
 
 ## 8. When the repositories go public
 
-In this order: make `.github` public, then the code repositories in release-train order. Per code repository:
+In this order: make `.github` public, then the code repositories in release-train order. Delete obsolete
+release tags and releases first: the tag ruleset of step 1 makes `v*` tags permanent. Per code repository:
 
 1. Rulesets for `main` and the release tags: `scripts/github-rulesets.sh <repo>` creates (or updates) them
    through the API: changes to `main` only through pull requests with every CI check green on the latest
@@ -181,5 +189,5 @@ Set when the repositories were created (`gh api -X PATCH repos/just-tavrn/<repo>
 
 | Repository | Settings |
 |---|---|
-| `.github` | private; default branch `main`; issues on; Discussions on; wiki off; projects off; squash merge only (pull-request title and description as the commit); delete branch on merge; Actions access: organization; default workflow token read-only; labels from `scripts/github-labels.sh` |
+| `.github` | private; default branch `main`; issues on; Discussions on (to be switched off, step 6); wiki off; projects off; squash merge only (pull-request title and description as the commit); delete branch on merge; Actions access: organization; default workflow token read-only; labels from `scripts/github-labels.sh` |
 | `cla-signatures` | private; default branch `main`; issues off; wiki off; projects off; squash merge only; delete branch on merge; Actions disabled |

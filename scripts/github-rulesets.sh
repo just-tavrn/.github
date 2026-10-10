@@ -15,7 +15,8 @@
 # person; stale reviews are dismissed, review threads must be resolved, merge or squash), every CI check of
 # the repository must pass on the latest commit, no force pushes, no deletion. Repository admins may bypass
 # the rules through a pull request only (a merge while the CI runner is down), never with a direct push.
-# "release tags": v* tags cannot be moved or deleted, not even by admins.
+# "release tags": v* tags cannot be moved or deleted, not even by admins. Delete obsolete tags (and their
+# releases) before this script runs; afterwards nobody can.
 set -euo pipefail
 
 org="just-tavrn"
@@ -34,11 +35,16 @@ if [ ${#repos[@]} -eq 0 ]; then
   repos=(.github tavrn tavrn-protocol tavrn-crypto tavrn-js tavrn-node tavrn-web)
 fi
 
-# The required status checks per repository: the check names of its CI jobs, the secret scan and the CLA
-# check (reusable workflows appear as "<job> / <job name>"). A job that is skipped by its `if:` counts as
-# passed, so the gate on CI_ENABLED and the private-only skips do not block merges.
+# The required status checks per repository: the check names its pull requests actually report (CI jobs,
+# the secret scan, the dependency review and the CLA check; reusable workflows appear as "<job> / <job name>").
+# A plain job skipped by its `if:` reports "skipped" and counts as passed. A job that calls a reusable workflow
+# and is skipped reports only its own name ("Container image"), never "<job> / <job name>", and a workflow that
+# does not run for pull requests reports nothing: such checks would wait forever, so they are not listed (the
+# node image is built on main only, the end-to-end suite runs nightly and by hand). CI_ENABLED must stay "true"
+# once the rulesets exist, for the same reason.
 gitleaks="gitleaks / Secret scan (gitleaks)"
 cla="cla / Contributor license agreement"
+review="Dependency review"
 contexts() {
   case "$1" in
     .github)
@@ -46,15 +52,15 @@ contexts() {
     tavrn)
       printf '%s\n' "Markdown lint, links, SPDX headers, shellcheck" "Publication hygiene" "$gitleaks" "$cla" ;;
     tavrn-protocol)
-      printf '%s\n' "Schemas, test vectors, SPDX headers, package" "Publication hygiene" "$gitleaks" "$cla" ;;
+      printf '%s\n' "Schemas, test vectors, SPDX headers, package" "Publication hygiene" "$gitleaks" "$review" "$cla" ;;
     tavrn-crypto)
-      printf '%s\n' "Rust / Rust (fmt, clippy, test)" "WebAssembly package / JavaScript (install, typecheck, test)" "$gitleaks" "$cla" ;;
+      printf '%s\n' "Rust / Rust (fmt, clippy, test)" "WebAssembly package / JavaScript (install, typecheck, test)" "Publication hygiene" "$gitleaks" "$review" "$cla" ;;
     tavrn-js)
-      printf '%s\n' "JavaScript / JavaScript (install, typecheck, test)" "Bot integration tests (real nodes)" "Publication hygiene" "$gitleaks" "$cla" ;;
+      printf '%s\n' "JavaScript / JavaScript (install, typecheck, test)" "Publication hygiene" "$gitleaks" "$review" "$cla" ;;
     tavrn-node)
-      printf '%s\n' "Rust / Rust (fmt, clippy, test)" "Container image / Container image (tavrn-node)" "SPDX headers, publication hygiene, perf report" "$gitleaks" "$cla" ;;
+      printf '%s\n' "Rust / Rust (fmt, clippy, test)" "SPDX headers, publication hygiene, perf report" "$gitleaks" "$review" "$cla" ;;
     tavrn-web)
-      printf '%s\n' "JavaScript / JavaScript (install, typecheck, test)" "End-to-end / End-to-end (Playwright)" "Publication hygiene" "$gitleaks" "$cla" ;;
+      printf '%s\n' "JavaScript / JavaScript (install, typecheck, test)" "Publication hygiene" "$gitleaks" "$review" "$cla" ;;
     *) echo "unknown repository $1" >&2; exit 1 ;;
   esac
 }
