@@ -127,7 +127,7 @@ RUN cd /tmp \
 # clang-cl, lld-link, llvm-lib, llvm-rc) for the Windows build with cargo-xwin.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf xdg-utils file \
+        libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev patchelf xdg-utils file \
         webkit2gtk-driver xvfb xdotool gnome-keyring nsis clang lld llvm \
     && rm -rf /var/lib/apt/lists/* \
     && command -v WebKitWebDriver xvfb-run xdotool gnome-keyring-daemon lld-link llvm-lib llvm-rc >/dev/null \
