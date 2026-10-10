@@ -361,8 +361,8 @@ docker run --rm --user runner --entrypoint /smoke-desktop.sh \
    permissions** (the default `GITHUB_TOKEN` is read-only; workflows ask for more in `permissions:`).
 3. **Actions** → **Runner groups**: on the Free plan only the group **Default** exists; restricting runners to
    selected repositories needs custom groups (Team plan). By default a group serves **private repositories
-   only**; when the repositories go public, tick **Allow public repositories** in the group's settings and rely
-   on the workflow guards below (on the Team plan: a group `tavrn` limited to the code repositories).
+   only**; when the repositories go public, tick **Allow public repositories** in the group's settings (on the
+   Team plan: a group `tavrn` limited to the code repositories and to selected workflows).
 4. Secrets that reach self-hosted jobs: `TAVRN_READ_PAT` (read-only, private phase) and the job's own
    `GITHUB_TOKEN`. No other long-lived secret belongs on these runners.
 
@@ -383,6 +383,17 @@ docker run --rm --user runner --entrypoint /smoke-desktop.sh \
   `runner/Dockerfile` and `runner/docker-compose.yml`.
 - Self-hosted jobs share the RAM cache (target directories, registry); a trusted job could poison it for the
   next one. Acceptable because only trusted events get these runners; clear it with a stack restart if in doubt.
+
+**What the guards do not cover (public repositories)**: a pull request runs the workflow files of its own
+branch. A fork can therefore change `.github/workflows/*.yml` and ask for `runs-on: [self-hosted, tavrn-heavy]`
+directly; the expressions above only keep the unchanged workflows off the runners. Once **Allow public
+repositories** is ticked, the barrier against such a pull request is the approval setting of step 1: nothing
+of an external contributor runs until a maintainer approves the run. Before approving, read the diff: never
+approve a run of a fork pull request that touches `.github/`, scripts the CI executes (`justfile`,
+`scripts/`, `build.rs`, `package.json` scripts, Dockerfiles) or the lockfiles, unless you would run that code on
+the runner VM yourself; when in doubt, push the change to a branch of the repository after review instead. The
+VM's isolation (its own VLAN, egress allowlist, ephemeral containers, no secrets but the read-only
+`TAVRN_READ_PAT`) limits the damage of a mistake; it does not make approving untrusted code safe.
 
 **In the stack**: ephemeral runners, `no-new-privileges` (no sudo), no Docker socket of the VM in any
 container, DinD only on the internal network with TLS client certificates and no published port, PostgreSQL
