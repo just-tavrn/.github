@@ -42,7 +42,10 @@ ENV RUSTUP_HOME=/opt/rustup \
     PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
     COREPACK_HOME=/opt/corepack \
     COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
-    PATH=/cache/cargo/bin:/opt/cargo/bin:/opt/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    PATH=/opt/cargo/bin:/opt/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Nothing the jobs can write is on PATH (runner/README.md "Security"): the tools live in /opt/cargo/bin, /opt/node/bin
+# and /usr/local/bin, owned by root. The jobs' CARGO_HOME is the shared cache (/cache/cargo, the registry), whose bin/
+# is deliberately not on PATH; a job that needs `cargo install` installs into $RUNNER_TEMP and calls it by path.
 
 # System packages: PostgreSQL client, shellcheck; drop the Docker daemon (the runners use the stack's DinD
 # through DOCKER_HOST, only the CLI, buildx and compose stay) and Ubuntu's Node 18.
@@ -174,6 +177,23 @@ COPY --from=valkey /usr/local/bin/valkey-server /usr/local/bin/valkey-cli /usr/l
 COPY --chmod=0755 entrypoint.sh /usr/local/bin/tavrn-runner-entrypoint
 
 RUN livekit-server --version && valkey-server --version
+
+# The container survives its jobs ("restart: unless-stopped" restarts the same container after every ephemeral job),
+# so nothing in its layer may be writable by the job user: the base image hands /actions-runner (the runner's own
+# binaries and config.sh, which the base entrypoint runs as root at the next start), /usr/local/bin/yq and
+# /opt/hostedtoolcache to the user runner. Root owns them here; the base entrypoint gives the top-level files of
+# /actions-runner back to runner at every start (config.sh writes .runner and .credentials there), so our
+# entrypoint restores those files from the root-owned copy in /opt/tavrn-runner-dist first and refuses to start
+# when bin/ or externals/ were swapped. The check at the end fails the build if the job user owns, or may write,
+# anything else that outlives a job (the tmpfs mounts of docker-compose.yml are fresh at every start; /var/tmp and
+# /run/lock are emptied by the entrypoint).
+RUN chown -R root:root /actions-runner /usr/local/bin/yq /opt/hostedtoolcache \
+    && chmod -R go-w /actions-runner \
+    && install -d -m 0755 /opt/tavrn-runner-dist \
+    && find /actions-runner -mindepth 1 -maxdepth 1 ! -name bin ! -name externals -exec cp -a {} /opt/tavrn-runner-dist/ \; \
+    && writable="$(find / -xdev \( -path /proc -o -path /sys -o -path /dev -o -path /tmp -o -path /var/tmp -o -path /run/lock \
+         -o -path /home/runner -o -path /_work \) -prune -o \( -user runner -o -group runner -perm -g+w -o -perm -o+w ! -type l \) -print)" \
+    && if [ -n "$writable" ]; then echo "writable for the job user and outliving a job:"; echo "$writable"; exit 1; fi
 
 # The stack mounts tmpfs over the work directory, /tmp, the home directory and /cache (runner/docker-compose.yml).
 ENV RUNNER_WORKDIR=/_work \

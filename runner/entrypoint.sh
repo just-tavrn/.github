@@ -5,12 +5,14 @@
 # (which registers the runner and drops to the user "runner"):
 #   1. claims a cache slot in the shared RAM cache /cache (runner/README.md, "Caches"): an flock on
 #      /cache/slots/<class>-<n>/.lock held for the container's lifetime, so no two runners share a Cargo target
-#      directory or tool cache; the Cargo registry, the pnpm store and the Playwright browsers are shared,
+#      directory; the Cargo registry, the pnpm store and the Playwright browsers are shared,
 #   2. starts a private Valkey on 127.0.0.1:6379 for the cluster tests (TAVRN_TEST_CACHE_URL); private because
 #      the outage test kills every client of its Valkey,
 #   3. with TAVRN_XWIN=true, downloads the Microsoft CRT and Windows SDK for cargo-xwin into the shared cache
 #      once (the Windows build of the desktop app; their license forbids publishing them in the image),
 #   4. hands over to /entrypoint.sh. Everything exported here reaches the jobs.
+# Before all of that it undoes what the previous job may have left in the container ("restart: unless-stopped"
+# starts the same container again after every ephemeral job): see restore_runner_files.
 set -euo pipefail
 
 cache="${TAVRN_CACHE_DIR:-/cache}"
@@ -29,13 +31,37 @@ xwin_ready() {
   done
 }
 
+# The runner's own files (runner/Dockerfile, README.md "Security"). The base entrypoint gives the top level of
+# /actions-runner to the job user and runs config.sh from there as root at the next start; bin/ and externals/ are
+# root-owned, but the job user may rename them. So: refuse to start when bin/ or externals/ are not the image's
+# root-owned directories any more, put the top-level files back from the image's root-owned copy, and empty the
+# other places in the container layer that every user may write.
+restore_runner_files() {
+  local runner_dir=/actions-runner dist=/opt/tavrn-runner-dist sub
+  [ -d "$dist" ] || return 0
+  for sub in bin externals; do
+    if [ -L "$runner_dir/$sub" ] || [ ! -d "$runner_dir/$sub" ] || [ "$(stat -c %u "$runner_dir/$sub")" != 0 ] ||
+      [ -n "$(find "$runner_dir/$sub" ! -user root -print -quit)" ]; then
+      log "$runner_dir/$sub was changed after the image was built: recreate the container (docker compose up -d --force-recreate)" >&2
+      exit 1
+    fi
+  done
+  find "$runner_dir" -mindepth 1 -maxdepth 1 ! -name bin ! -name externals ! -name _diag -exec rm -rf {} +
+  cp -a "$dist/." "$runner_dir/"
+  chown root:root "$runner_dir" && chmod 0755 "$runner_dir"
+  find /var/tmp /run/lock /opt/hostedtoolcache -mindepth 1 -delete 2>/dev/null || true
+}
+
 if [ "$(id -u)" -ne 0 ]; then
   log "must start as root (the image's entrypoint drops to the user runner); do not set user: in the compose file" >&2
   exit 1
 fi
+restore_runner_files
 
 if [ -d "$cache" ] && mountpoint -q "$cache"; then
   install -d -o runner -g runner "$cache/cargo" "$cache/pnpm-store" "$cache/slots"
+  # `cargo install` of an earlier job: never on PATH (runner/Dockerfile), removed anyway.
+  rm -rf "$cache/cargo/bin"
 
   slot=""
   for i in $(seq 1 "$slots"); do
@@ -54,7 +80,7 @@ if [ -d "$cache" ] && mountpoint -q "$cache"; then
   fi
   # fd 9 stays open through exec: the lock lives as long as the container.
 
-  install -d -o runner -g runner "$slot/target" "$slot/toolcache"
+  install -d -o runner -g runner "$slot/target"
   used_gb=$(du -s --block-size=1G "$slot/target" | cut -f1)
   if [ "$used_gb" -gt "$target_max_gb" ]; then
     log "target directory of $(basename "$slot") is ${used_gb} GB (> ${target_max_gb} GB): starting it over"
@@ -102,8 +128,10 @@ if [ -d "$cache" ] && mountpoint -q "$cache"; then
   export XWIN_CACHE_DIR="$slot/cargo-xwin"
   export CARGO_HOME="$cache/cargo"
   export CARGO_TARGET_DIR="$slot/target"
-  export RUNNER_TOOL_CACHE="$slot/toolcache"
-  export AGENT_TOOLSDIRECTORY="$slot/toolcache"
+  # The tool cache of setup-* actions lives in the work directory (a tmpfs, fresh for every job), never in the
+  # shared cache: a tool another job put there would run in every later job.
+  export RUNNER_TOOL_CACHE="${RUNNER_WORKDIR:-/_work}/_tool"
+  export AGENT_TOOLSDIRECTORY="${RUNNER_WORKDIR:-/_work}/_tool"
   export PLAYWRIGHT_BROWSERS_PATH="$cache/ms-playwright"
   export npm_config_store_dir="$cache/pnpm-store"
   export pnpm_config_store_dir="$cache/pnpm-store"
