@@ -223,8 +223,11 @@ webhook, no callback; **Organization permissions** → **Self-hosted runners: Re
 GitHub App be installed: Only on this account**. Generate a private key, then **Install App** on `just-tavrn`.
 
 The entrypoint un-exports the credential before the runner starts, and the jobs (user `runner`, sudo blocked
-by `no-new-privileges`) cannot read it from the root-owned processes. It lives in Portainer's stack variables
-and in the container configuration of the VM; rotate it if the VM is ever suspected compromised.
+by `no-new-privileges`) cannot read it from the root-owned processes of their own container. It lives in
+Portainer's stack variables and in the container configuration of the VM, and **a job can reach it anyway**
+through the privileged DinD (section [Security](#security), "What remains"): treat it as exposed to every job
+that runs on these runners, keep its permission at **Self-hosted runners** only, and rotate it if the VM is
+ever suspected compromised.
 
 ## Memory
 
@@ -253,13 +256,16 @@ OOM killer (inside the VM, never on the host).
 `/cache` is one tmpfs volume shared by all runners and kept mounted by the `housekeeping` service, so it
 survives the restart after every job (Docker discards a tmpfs volume when no container uses it):
 
-- `/cache/cargo` (`CARGO_HOME`: registry, git checkouts, `cargo install`ed tools) and `/cache/pnpm-store` are
-  shared; both tools lock them for concurrent use.
+- `/cache/cargo` (`CARGO_HOME`: registry and git checkouts) and `/cache/pnpm-store` are shared; both tools lock
+  them for concurrent use. `/cache/cargo/bin` is not on `PATH` and is emptied at every start: the tools of the
+  image live in root-owned directories (`/opt/cargo/bin`, `/usr/local/bin`); a job that needs `cargo install`
+  installs into `$RUNNER_TEMP` (`cargo install --root "$RUNNER_TEMP/tools" …`) and calls the tool by path.
 - `/cache/ms-playwright` is seeded once from the image's Chromium; other Playwright versions download beside it.
 - `/cache/cargo-xwin/xwin` holds the Microsoft CRT and Windows SDK of the Windows desktop build, downloaded once
   by the entrypoint of the first `tavrn-heavy` runner (section [Desktop builds](#desktop-builds)).
-- `/cache/slots/<class>-<n>/target` and `…/toolcache`: each runner container holds an exclusive `flock` on
-  one slot for its lifetime, so two jobs never share a Cargo target directory.
+- `/cache/slots/<class>-<n>/target`: each runner container holds an exclusive `flock` on one slot for its
+  lifetime, so two jobs never share a Cargo target directory at the same time. The tool cache of `setup-*`
+  actions (`RUNNER_TOOL_CACHE`) is not shared: it lives in the job's work directory, a fresh tmpfs.
 
 The `toolchain` and `extra-targets` inputs of `rust-ci.yml` and the `node-version` inputs are checked against
 the image on self-hosted runners, not installed (an install would write to the container layer on disk);
@@ -381,8 +387,14 @@ docker run --rm --user runner --entrypoint /smoke-desktop.sh \
 - Every action is pinned by commit SHA with the version as a comment; Dependabot
   ([.github/dependabot.yml](../.github/dependabot.yml)) updates the pins and the image digests of
   `runner/Dockerfile` and `runner/docker-compose.yml`.
-- Self-hosted jobs share the RAM cache (target directories, registry); a trusted job could poison it for the
-  next one. Acceptable because only trusted events get these runners; clear it with a stack restart if in doubt.
+- The guards also refuse branches named `dependabot/*`, whatever the event. A **manual dispatch**
+  (`gh workflow run <workflow> --ref <branch>`) is a trusted event otherwise: it runs that branch's code, and its
+  workflow files, on the runners as if a maintainer had written it. Only dispatch branches whose diff you have
+  read, never a contributor's or a bot's branch you have not reviewed.
+- Nothing that is released is built here: release tags run on GitHub-hosted runners only, the node's `edge`
+  image is built on `ubuntu-latest`, and GitHub-hosted image builds never import a cache a self-hosted build
+  wrote (`docker-publish.yml`: Actions cache only from GitHub-hosted runs, scope `<image>-hosted`; tag builds
+  without any cache).
 
 **What the guards do not cover (public repositories)**: a pull request runs the workflow files of its own
 branch. A fork can therefore change `.github/workflows/*.yml` and ask for `runs-on: [self-hosted, tavrn-heavy]`
@@ -399,6 +411,30 @@ VM's isolation (its own VLAN, egress allowlist, ephemeral containers, no secrets
 container, DinD only on the internal network with TLS client certificates and no published port, PostgreSQL
 only on the internal network, no published ports at all. Never publish DinD's port 2376 or mount the VM's
 Docker socket into a runner.
+
+**In the image**: a runner container is restarted, not recreated, after each job, so its layer outlives the
+job. Nothing the job user can write is on `PATH`, and the image hands nothing of its own to that user: the
+runner's binaries (`/actions-runner/bin`, `externals`) and the base image's tools are root-owned, a build-time
+check fails when the job user owns or may write anything else outside the tmpfs mounts, and the entrypoint puts
+the top-level runner files back from a root-owned copy before the base entrypoint runs `config.sh` as root
+(it refuses to start, and asks for `docker compose up -d --force-recreate`, when `bin/` or `externals/` were
+swapped). `/var/tmp`, `/run/lock` and `/opt/hostedtoolcache` are emptied at every start.
+
+**What remains** (the runners are one trust domain; everything that reaches them must be code you would run on
+the VM yourself):
+
+- **DinD is privileged and shared.** Every job gets `DOCKER_HOST`; `docker run --privileged` (or a bind mount of
+  `/`) against DinD is root in the DinD container and from there root on the VM: the other runners, their
+  caches, the PostgreSQL data and the runner credential (section [Credentials](#credentials)). DinD's image and
+  build cache (including `RUN --mount=type=cache` mounts) are shared by all jobs.
+- **The shared cache is writable by every job**: the Cargo registry and git checkouts (extracted crate sources
+  are not re-verified), the pnpm store, the Playwright browsers and the target directory of a slot (build-script
+  output and compiled artefacts, reused by the next job in that slot). A job can plant code that later jobs
+  run. A stack restart empties all of it (tmpfs).
+- **Roadmap**: one DinD per runner container (or rootless DinD / Sysbox) so a job cannot reach the VM or the
+  other runners, per-job caches restored read-only, and the runner credential outside the container
+  environment. Until then: only trusted events, and no secret on these runners besides the read-only
+  `TAVRN_READ_PAT` and the job's own `GITHUB_TOKEN`.
 
 **User namespaces for Chromium's sandbox**: the Electron desktop app's tests (tavrn-web, job "Desktop (Linux,
 Electron)") start the app with Chromium's sandbox on, which needs unprivileged user namespaces (the setuid helper

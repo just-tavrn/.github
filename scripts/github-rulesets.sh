@@ -15,8 +15,10 @@
 # person; stale reviews are dismissed, review threads must be resolved, merge or squash), every CI check of
 # the repository must pass on the latest commit, no force pushes, no deletion. Repository admins may bypass
 # the rules through a pull request only (a merge while the CI runner is down), never with a direct push.
-# "release tags": v* tags cannot be moved or deleted, not even by admins. Delete obsolete tags (and their
-# releases) before this script runs; afterwards nobody can.
+# "release tags": v* tags cannot be moved or deleted, not even by admins, and only organization owners (the
+# bypass actor) may create them: a release workflow starts from a tag, and its publish jobs hold the release
+# secrets (environment "release"), so neither a workflow token nor another write user may push one. Delete
+# obsolete tags (and their releases) before this script runs; afterwards nobody can.
 set -euo pipefail
 
 org="just-tavrn"
@@ -111,8 +113,8 @@ tag_ruleset() {
 {
   "name": "release tags", "target": "tag", "enforcement": "active",
   "conditions": { "ref_name": { "include": ["refs/tags/v*"], "exclude": [] } },
-  "bypass_actors": [],
-  "rules": [ { "type": "deletion" }, { "type": "non_fast_forward" }, { "type": "update" } ]
+  "bypass_actors": [ { "actor_id": 1, "actor_type": "OrganizationAdmin", "bypass_mode": "always" } ],
+  "rules": [ { "type": "creation" }, { "type": "deletion" }, { "type": "non_fast_forward" }, { "type": "update" } ]
 }
 JSON
 }
