@@ -24,6 +24,11 @@ x-runner: &runner
   restart: unless-stopped
   security_opt:
     - no-new-privileges:true
+    # Unprivileged user namespaces for the jobs: Chromium's sandbox (the Electron desktop app's tests) needs them, and
+    # Docker's default seccomp profile denies clone/unshare with CLONE_NEWUSER. The profile is dropped only here, for
+    # the runner containers that run trusted events (README.md "Security"); no-new-privileges and the default AppArmor
+    # profile stay. The VM also needs `kernel.apparmor_restrict_unprivileged_userns=0` (vm/user-data.yaml).
+    - seccomp=unconfined
   depends_on:
     dind:
       condition: service_healthy
