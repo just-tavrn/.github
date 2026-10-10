@@ -5,8 +5,8 @@ forum channels, roles and permissions, screen sharing, direct messages and frien
 Anyone can run a node, and all nodes together form one network where an account on one node can join rooms
 on every other. Conversations are end-to-end encrypted with MLS, so node operators can never read along.
 
-> **Status: in private review, going public soon.** The repositories below are being reviewed before the
-> first public release. Links may not work for you yet.
+> **Status: pre-release.** tavrn is before its first stable release and the encryption code has not been
+> audited yet. Start with the [overview](https://github.com/just-tavrn/tavrn).
 
 ## Repositories
 
