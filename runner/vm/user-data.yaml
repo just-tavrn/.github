@@ -112,6 +112,13 @@ packages:
   - docker-compose-plugin
 
 write_files:
+  # Unprivileged user namespaces for the runner containers (Chromium's sandbox in the desktop app's tests): Ubuntu
+  # 24.04 restricts them to AppArmor profiles that allow `userns`, which docker-default does not (runner/README.md
+  # "Security"). Applied by `sysctl --system` in runcmd and on every boot.
+  - path: /etc/sysctl.d/60-userns.conf
+    permissions: "0644"
+    content: |
+      kernel.apparmor_restrict_unprivileged_userns = 0
   - path: /etc/nftables.conf
     permissions: "0644"
     encoding: b64
@@ -168,6 +175,7 @@ bootcmd:
   - [sh, -c, "systemctl disable --now nftables >/dev/null 2>&1; command -v nft >/dev/null && nft flush ruleset; true"]
 
 runcmd:
+  - sysctl --system
   # dnsmasq becomes the only resolver (systemd-resolved would let lookups bypass the allowlist).
   - systemctl disable --now systemd-resolved
   - rm -f /etc/resolv.conf

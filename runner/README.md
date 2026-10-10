@@ -389,6 +389,22 @@ container, DinD only on the internal network with TLS client certificates and no
 only on the internal network, no published ports at all. Never publish DinD's port 2376 or mount the VM's
 Docker socket into a runner.
 
+**User namespaces for Chromium's sandbox**: the Electron desktop app's tests (tavrn-web, job "Desktop (Linux,
+Electron)") start the app with Chromium's sandbox on, which needs unprivileged user namespaces (the setuid helper
+is ruled out by `no-new-privileges`). Docker's default seccomp profile denies them, so the runner services run with
+`seccomp=unconfined` (`docker-compose.yml`); `no-new-privileges` and the default AppArmor profile stay, and only
+trusted events reach these runners. Ubuntu 24.04 additionally restricts user namespaces to AppArmor profiles that
+allow them, so the VM sets `kernel.apparmor_restrict_unprivileged_userns=0` (`vm/user-data.yaml`,
+`/etc/sysctl.d/60-userns.conf`). On a VM created before this change, apply it once by hand:
+
+```bash
+printf 'kernel.apparmor_restrict_unprivileged_userns = 0\n' | sudo tee /etc/sysctl.d/60-userns.conf
+sudo sysctl --system
+```
+
+then update the stack in Portainer. Check from a job (or `docker exec` into a runner): `unshare -U true` must
+succeed. Without it the job skips the app's tests with a warning and still builds the packages.
+
 ## Stack directly on a host (not recommended once the repositories are public)
 
 The compose file runs unchanged on any Docker host: set `DIND_DNS` to a resolver the containers can reach
