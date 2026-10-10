@@ -16,9 +16,10 @@
 # the repository must pass on the latest commit, no force pushes, no deletion. Repository admins may bypass
 # the rules through a pull request only (a merge while the CI runner is down), never with a direct push.
 # "release tags": v* tags cannot be moved or deleted, not even by admins. "release tag creation": only
-# organization owners (its bypass actor) may create them: a release workflow starts from a tag, and its publish jobs hold the release
-# secrets (environment "release"), so neither a workflow token nor another write user may push one. Delete
-# obsolete tags (and their releases) before this script runs; afterwards nobody can.
+# organization owners (its bypass actor) may create them: a release workflow starts from a tag, and its
+# publish jobs hold the release secrets (environment "release"), so neither a workflow token nor another
+# write user may push one. Delete obsolete tags (and their releases) before this script runs; afterwards
+# nobody can.
 set -euo pipefail
 
 org="just-tavrn"
