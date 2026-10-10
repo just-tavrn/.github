@@ -123,15 +123,34 @@ RUN cd /tmp \
     && ffmpeg -hide_banner -encoders | grep -c libwebp_anim
 
 # Desktop app (Tauri 2, runner/README.md "Desktop builds"): WebKitGTK and GTK development files for the Linux
-# build and its deb/AppImage bundles, WebKitWebDriver and Xvfb for WebDriver tests, NSIS and LLVM (clang as
-# clang-cl, lld-link, llvm-lib, llvm-rc) for the Windows build with cargo-xwin.
+# build and its deb/AppImage bundles, WebKitWebDriver and Xvfb for WebDriver tests, NSIS for the Windows installer.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev patchelf xdg-utils file \
-        webkit2gtk-driver xvfb xdotool gnome-keyring nsis clang lld llvm \
+        webkit2gtk-driver xvfb xdotool gnome-keyring nsis gnupg \
     && rm -rf /var/lib/apt/lists/* \
-    && command -v WebKitWebDriver xvfb-run xdotool gnome-keyring-daemon lld-link llvm-lib llvm-rc >/dev/null \
-    && makensis -VERSION && clang --version | head -n1
+    && command -v WebKitWebDriver xvfb-run xdotool gnome-keyring-daemon >/dev/null \
+    && makensis -VERSION
+
+# LLVM 21 from apt.llvm.org (the key's fingerprint is checked; Noble ships LLVM 18): the native voice engine's
+# libwebrtc comes with a hermetic libc++ that needs clang 21 or newer, and the Microsoft STL of the Windows
+# cross-build needs clang 19 or newer. `clang`, `clang++`, `clang-cl`, `lld`, `ld.lld`, `lld-link`, `llvm-lib`,
+# `llvm-rc` and `llvm-ar` point at the 21 binaries (update-alternatives), so cargo, cc-rs, cargo-xwin and the
+# desktop workflow's tool check find them under their plain names.
+ARG LLVM_VERSION=21
+RUN install -d -m 0755 /etc/apt/keyrings \
+    && curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | gpg --dearmor -o /etc/apt/keyrings/llvm.gpg \
+    && gpg --no-default-keyring --keyring /etc/apt/keyrings/llvm.gpg --with-colons --fingerprint \
+       | grep -q '^fpr:::::::::6084F3CF814B57C1CF12EFD515CF4D18AF4F7421:' \
+    && echo "deb [signed-by=/etc/apt/keyrings/llvm.gpg] http://apt.llvm.org/noble/ llvm-toolchain-noble-${LLVM_VERSION} main" \
+       > /etc/apt/sources.list.d/llvm-${LLVM_VERSION}.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends clang-${LLVM_VERSION} lld-${LLVM_VERSION} llvm-${LLVM_VERSION} \
+    && rm -rf /var/lib/apt/lists/* \
+    && for t in clang clang++ clang-cl lld ld.lld lld-link llvm-lib llvm-rc llvm-ar; do \
+         update-alternatives --install /usr/bin/$t $t /usr/bin/$t-${LLVM_VERSION} 100; done \
+    && command -v clang clang++ clang-cl lld lld-link llvm-lib llvm-rc llvm-ar >/dev/null \
+    && clang --version | head -n1 && clang-cl --version | head -n1 && lld-link --version
 
 # Windows target and the Tauri tools: cargo-xwin (release binary, checksum verified) and tauri-driver (WebDriver
 # bridge to WebKitWebDriver). The Microsoft CRT and Windows SDK that cargo-xwin needs are not part of the image:
