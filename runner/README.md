@@ -1,16 +1,13 @@
 # Self-hosted runners
 
-Ephemeral GitHub Actions runners for the `just-tavrn` organization on a test host: a **dedicated
-VM** as the isolation boundary, inside it a Docker Compose stack managed from Portainer. Everything the
-runners write lives in RAM (tmpfs); the host's disk only holds the VM's system and its container images.
+Ephemeral GitHub Actions runners for the `just-tavrn` organization: a Docker Compose stack (runners, Docker-in-Docker,
+PostgreSQL) and the runner image. Everything the runners write lives in RAM (tmpfs); the disk of the machine only
+holds its system and the container images. Where and how the stack runs is the operator's choice; the section
+[Isolation](#isolation) says what that choice has to provide.
 
 | Path | What it is |
 |---|---|
-| [vm/make-vm.sh](vm/make-vm.sh) | Creates the VM with KVM/libvirt from the Ubuntu 24.04 cloud image |
-| [vm/user-data.yaml](vm/user-data.yaml), [vm/network-config.yaml](vm/network-config.yaml) | cloud-init: Docker Engine, compose plugin, Portainer agent, firewall, resolver |
-| [vm/nftables.conf](vm/nftables.conf), [vm/dnsmasq-egress.conf](vm/dnsmasq-egress.conf) | Egress filter of the VM: no LAN, only allowlisted destinations |
-| [vm/libvirt-network.xml](vm/libvirt-network.xml) | libvirt network `tavrn-ci` in bridge mode on the host bridge `br-ci` |
-| [docker-compose.yml](docker-compose.yml), [.env.example](.env.example) | The runner stack (Portainer stack) and its variables |
+| [docker-compose.yml](docker-compose.yml), [.env.example](.env.example) | The runner stack and its variables |
 | [Dockerfile](Dockerfile), [entrypoint.sh](entrypoint.sh) | The runner image (`ghcr.io/just-tavrn/tavrn-runner`, built by [runner-image.yml](../.github/workflows/runner-image.yml)) |
 | [smoke-desktop.sh](smoke-desktop.sh) | Smoke test of the image's desktop toolchain (section [Desktop builds](#desktop-builds)) |
 
@@ -20,7 +17,7 @@ runners write lives in RAM (tmpfs); the host's disk only holds the VM's system a
 |---|---|---|
 | gitleaks, CLA, actionlint/shellcheck of this repository | GitHub-hosted (`ubuntu-latest`) | light, need no tools from the image |
 | Rust CI, JavaScript CI, container builds (`rust-ci.yml`, `js-ci.yml`, `docker-publish.yml` with `runner: tavrn-heavy`) | self-hosted `tavrn-heavy` | heavy builds and tests; PostgreSQL and Valkey of the stack, caches in RAM |
-| Pull requests from forks and from Dependabot of those workflows | GitHub-hosted (automatic fallback) | untrusted code never reaches the VM |
+| Pull requests from forks and from Dependabot of those workflows | GitHub-hosted (automatic fallback) | untrusted code never reaches the runner machine |
 | End-to-end suite (`e2e.yml`) | self-hosted `tavrn-e2e` | Chromium, livekit-server, ffmpeg in the image; skipped for forks and Dependabot |
 | Desktop app of tavrn-web (`apps/desktop`, Tauri 2): Linux natively, Windows cross-compiled | self-hosted `tavrn-heavy` | WebKitGTK, NSIS, LLVM and cargo-xwin in the image, the Windows SDK in the cache ([Desktop builds](#desktop-builds)) |
 
@@ -36,174 +33,78 @@ jobs:
       postgres: true
 ```
 
-## Why a VM
+## Isolation
 
 DinD runs **privileged**, and containers share the kernel with whatever runs them: a job that escapes its
 container (a compromised dependency, action or image is enough once the repositories are public) is root on
-that machine. On the host that would mean its data, its other containers and its LAN. The VM moves
-that blast radius into a machine that holds nothing of value, has no shared folders and no host mounts, and
-whose network can only reach the internet:
+that machine. Run the stack on a machine that holds nothing of value and whose network can only reach the
+internet, typically a dedicated VM:
 
-1. **VM boundary** (KVM): an escape from DinD reaches the VM's kernel, not the host's.
-2. **Network isolation outside the VM**: the VM sits in a VLAN of its own whose router zone forwards only to
-   the WAN. This holds even if an attacker is root in the VM.
-3. **Egress filter inside the VM** (defense in depth): nftables rejects every private, loopback and link-local
-   destination and lets TCP 80/443 through only to addresses of allowlisted domains (dnsmasq fills the sets).
-4. **Ephemeral runners**: one job per container; the work directory, `/tmp` and the home directory are fresh
-   tmpfs mounts for every job.
+1. **A boundary around the Docker host** (a VM, or a physical machine of its own): an escape from DinD reaches
+   that machine's kernel, nothing else. No shared folders, no host mounts, nothing on it but this stack.
+2. **Network isolation outside the machine**: its own network segment whose router forwards only to the
+   internet, not to your LAN, other segments or the router's own services beyond DNS. This holds even if an
+   attacker is root on the machine.
+3. **Egress filter on the machine** (defense in depth): reject every private, loopback and link-local
+   destination and let TCP 80/443 through only to allowlisted destinations (GitHub and its Actions service and
+   blob storage, ghcr.io, crates.io and rustup, npm and Node.js, Playwright downloads, Microsoft's Visual Studio
+   download server for the [desktop builds](#desktop-builds), Docker Hub, the distribution mirrors, the sources
+   of tavrn's `deploy/Dockerfile`). CDNs and shared storage make such a list a narrowing, not a seal; its main
+   job together with the private-range block is to keep your LAN unreachable.
+4. **Ephemeral runners** (this stack): one job per container; the work directory, `/tmp` and the home directory
+   are fresh tmpfs mounts for every job.
 
-Alternatives considered:
+Alternatives considered for the container runtime:
 
 | Option | Why not (for now) |
 |---|---|
-| Sysbox (unprivileged DinD as a runc replacement) | still a shared kernel; development has slowed since the acquisition by Docker; another runtime to maintain on the host |
+| Sysbox (unprivileged DinD as a runc replacement) | still a shared kernel; development has slowed since the acquisition by Docker; another runtime to maintain |
 | gVisor (`runsc`) | DinD inside gVisor is limited and slow; syscall-heavy Rust builds pay a large overhead |
-| Kata Containers | a VM per container is strong isolation, but needs containerd shims and nested DinD tuning; Portainer support is thin |
+| Kata Containers | a VM per container is strong isolation, but needs containerd shims and nested DinD tuning |
 | Firecracker microVM per job (actuated, self-built orchestrators) | strongest per-job isolation, but commercial or a project of its own (images, networking, scheduling) |
 | Actions Runner Controller on Kubernetes | needs a Kubernetes cluster; the same DinD question remains |
 
-One VM plus ephemeral containers is simple, managed from the existing Portainer, and keeps the host and LAN
-out of reach. Inside the VM, jobs are separated by containers only, which is acceptable because only trusted
-events get the self-hosted runners (section [Security](#security)).
+One isolated machine plus ephemeral containers is simple and keeps everything else out of reach. On it, jobs are
+separated by containers only, which is acceptable because only trusted events get the self-hosted runners
+(section [Security](#security)). Running the stack on a machine that also holds other things is acceptable only
+while every repository is private and every committer is trusted.
 
-## 1. Host network
-
-Run the VM in a **VLAN and firewall zone of its own that can only reach the internet**: no forwarding to the
-LAN or other VLANs, no access to the router itself except DNS (and DHCP if the VM takes a lease). The LAN may
-reach the zone for administration (SSH, Portainer agent). On OpenWrt that is a `bridge-vlan` with the VLAN
-tagged on the port towards the host, an interface with a static address in that VLAN, and a firewall zone
-with input and forward `DROP`, a forwarding to `wan` only, a forwarding from `lan`, and a rule that accepts
-DNS (port 53) from the zone. A managed switch on the way must carry the VLAN tagged on both trunk ports.
-Do not reuse an existing guest or IoT network: the runners would share it with other devices.
-
-The examples below use placeholders: `CI_VLAN` (for example `50`), `CI_SUBNET` (for example `10.100.0.0/24`,
-router `.1`, VM `.10`), `<host-bridge>` or `<uplink>` (the host's bridge or NIC that receives the tagged
-frames). The VM uses a static address and the router as DNS resolver by default.
-
-On the host, a VLAN interface and a bridge `br-ci` **without host address**, so the VM cannot talk to the host
-(`/etc/netplan/60-ci.yaml`, mode 600; here `CI_VLAN=50`):
-
-```yaml
-network:
-  version: 2
-  vlans:
-    vlan50:
-      id: 50
-      link: <host-bridge>    # or <uplink>; it must be defined in netplan as well
-  bridges:
-    br-ci:
-      interfaces: [vlan50]
-      parameters:
-        stp: false
-      dhcp4: false
-      dhcp6: false
-      link-local: []
-```
-
-Apply with `netplan try` (or `netplan generate && netplan apply` where `try` is not supported). On hosts whose
-interfaces live in NetworkManager only, create the same with `nmcli` (bridge without IPv4/IPv6, a VLAN
-connection on the parent device as its port). Verify with `ip -d link show vlan50` (802.1Q id, master
-`br-ci`), `ip -4 addr show br-ci` (no address), `bridge link show` (ports of `br-ci`) and `bridge vlan show`.
-
-make-vm.sh defines the libvirt network `tavrn-ci` on `br-ci` from [vm/libvirt-network.xml](vm/libvirt-network.xml)
-(bridge mode: no NAT, no libvirt DHCP or DNS) and refuses to run while `br-ci` has a host IPv4 address.
-
-Docker on the host loads `br_netfilter`, which sends bridged frames through the host's `FORWARD` chain whose
-policy Docker sets to `DROP`. Let the CI bridge pass (persist it, for example in a small systemd unit that runs
-after `docker.service`):
-
-```bash
-iptables -I DOCKER-USER -i br-ci -o br-ci -j ACCEPT
-```
-
-> **Host routing check.** Docker's default address pools on a busy host often cover large private ranges (for
-> example `192.168.16.0/20`–`192.168.208.0/20`). If `ip route get <VM address>` on the host answers with a
-> Docker bridge instead of your router, add a more specific route for the CI subnet via the router (a netplan
-> `routes:` entry on the host bridge), or the host and its Portainer server will never reach the VM.
-
-## 2. The VM
-
-On the host, as root (packages: `apt install qemu-kvm libvirt-daemon-system virtinst qemu-utils`):
-
-```bash
-git clone https://github.com/just-tavrn/.github tavrn-dot-github && cd tavrn-dot-github
-CI_SUBNET=10.100.0.0/24 \
-ADMIN_CIDR=192.0.2.0/24 \
-SSH_PUBKEY_FILE=/root/.ssh/id_ed25519.pub \
-AGENT_SECRET="$(openssl rand -hex 24)" \
-VM_RAM_GB=512 VM_VCPUS=32 \
-runner/vm/make-vm.sh
-```
-
-- `ADMIN_CIDR`: the LAN network (or the single address) of the admin machine and the Portainer server; only
-  it reaches SSH (22) and the Portainer agent (9001) of the VM.
-- `AGENT_SECRET`: optional, but recommended; the Portainer **server** must run with the same `AGENT_SECRET`.
-- `PORTAINER_AGENT_IMAGE`: defaults to `portainer/agent:2.45.1` pinned by digest; use your server's version.
-- `VM_DISK_GB` (default 64): system and container images only; jobs never write to it.
-- `CI_SUBNET` (a /24; the default `10.100.0.0/24` is only an example) sets the defaults `VM_IP_CIDR=<.10>/24`,
-  `VM_GATEWAY=<.1>` and `DNS_UPSTREAM=<.1>` (the router; the only private address the VM's firewall lets it
-  talk to, DNS only). `VM_IP_CIDR=dhcp` takes a lease instead; `DNS_UPSTREAM=9.9.9.9,149.112.112.112` uses public
-  resolvers instead of the router. `DRY_RUN=1` only renders the cloud-init files.
-
-Follow the first boot with `virsh console tavrn-ci`, then `ssh ciadmin@<VM address>` and
-`cloud-init status --wait`. Check the isolation from inside the VM:
-
-```bash
-curl -sS -o /dev/null -w '%{http_code}\n' https://api.github.com    # 200
-curl -sS -m 5 http://<a LAN address> || echo blocked              # blocked (any private address)
-curl -sS -m 5 http://<router address> || echo blocked               # blocked (router: DNS only)
-curl -sS -m 5 https://example.org || echo blocked                   # blocked (not allowlisted)
-sudo journalctl -k | grep tavrn-egress | tail                         # what was rejected
-```
-
-The allowlist ([vm/dnsmasq-egress.conf](vm/dnsmasq-egress.conf)) covers GitHub (including the Actions
-service and its Azure blob storage), ghcr.io, crates.io and rustup, npm and Node.js, Playwright downloads,
-Microsoft's Visual Studio download server (the Windows SDK of the [desktop builds](#desktop-builds)),
-Docker Hub, the Ubuntu/Debian/Alpine mirrors and the sources of tavrn's `deploy/Dockerfile`. CDNs host many
-sites on the same addresses, and `blob.core.windows.net` / `storage.googleapis.com` are shared storage, so the
-allowlist narrows exfiltration but does not close it; its main job together with the private-range block is to
-keep the LAN and the host unreachable. A new destination: add the domain, `sudo systemctl restart dnsmasq`, and
-add it to the file in this repository.
-
-## 3. The stack in Portainer
+## Deploying the stack
 
 1. **Credentials** (section [Credentials](#credentials)): create the GitHub App or the token first.
 2. **Image**: after `runner-image.yml` ran on `main`, open the package
    `ghcr.io/just-tavrn/tavrn-runner` and set its visibility to **Public** (it contains no secrets; private
-   packages count against the Free plan's 500 MB package storage and would need registry credentials in the
-   VM). Take the digest from the workflow run's summary or with
+   packages count against the Free plan's 500 MB package storage and would need registry credentials on the
+   machine). Take the digest from the workflow run's summary or with
    `docker buildx imagetools inspect ghcr.io/just-tavrn/tavrn-runner:edge`.
-3. Portainer → **Environments** → **Add environment** → **Docker Standalone** → **Agent**: name `tavrn-ci`,
-   environment address `<VM address>:9001` → **Connect**.
-4. In the environment `tavrn-ci`: **Stacks** → **Add stack**, name `tavrn-runner`, build method
-   **Repository**: URL `https://github.com/just-tavrn/.github`, reference `refs/heads/main`, compose path
-   `runner/docker-compose.yml`; while the repository is private, enable authentication with a fine-grained PAT
-   that has **Contents: Read-only** on `just-tavrn/.github`. (Or build method **Web editor** and paste the file.)
-5. **Environment variables** → **Advanced mode**: paste [.env.example](.env.example), set `RUNNER_IMAGE` to
-   the digest from step 2 and exactly one credential method.
-6. **Deploy the stack**. After about a minute:
+3. On the Docker host: copy [docker-compose.yml](docker-compose.yml) and [.env.example](.env.example) as `.env`
+   (mode 600: it holds the credential), set `RUNNER_IMAGE` to the digest from step 2 and exactly one credential
+   method. `DIND_DNS` is the resolver the job containers inside DinD use (the Docker host's own resolver on its
+   `docker0` address, or a public one they are allowed to reach). Any tool that drives Docker Compose (a stack
+   manager with a web interface works the same way) is fine; the file needs no changes.
+4. `docker compose -p tavrn-runner --env-file .env up -d`. After about a minute:
    ```bash
    gh api orgs/just-tavrn/actions/runners \
      --jq '.runners[] | [.name, .status, .busy, ([.labels[].name] | join(","))] | @tsv'
    ```
    shows `tavrn-heavy-…` (two) and `tavrn-e2e-…` (one) as `online`.
 
-**Scaling**: change `RUNNER_HEAVY_REPLICAS` / `RUNNER_E2E_REPLICAS` in the stack's variables → **Update the
-stack**. Keep the memory budget below in mind.
+**Scaling**: change `RUNNER_HEAVY_REPLICAS` / `RUNNER_E2E_REPLICAS` in `.env` and run `up -d` again. Keep the
+memory budget below in mind.
 
-**Logs**: Portainer → **Containers** → `tavrn-runner-runner-heavy-1` → **Logs** (registration and job names),
-or in the VM `docker compose -p tavrn-runner logs -f runner-heavy`. A job's own log is on GitHub.
+**Logs**: `docker compose -p tavrn-runner logs -f runner-heavy` (registration and job names). A job's own log is
+on GitHub.
 
 **Updating**: the image is pinned by digest. A new image appears on every change of `runner/Dockerfile` (also
-Dependabot's base image bumps) and weekly. Set the new digest in `RUNNER_IMAGE` → **Update the stack**
-(re-pull). The runners have automatic updates disabled; GitHub stops sending jobs to a runner version older
+Dependabot's base image bumps) and weekly. Set the new digest in `RUNNER_IMAGE` and run `up -d` again (it
+pulls and recreates the containers). The runners have automatic updates disabled; GitHub stops sending jobs to a runner version older
 than about 30 days after a newer release, so update at least monthly. An update recreates the containers and
-cancels running jobs: check `busy` in the runner list first. The VM itself installs security updates
-unattended and reboots at 04:30 when needed.
+cancels running jobs: check `busy` in the runner list first. Let the machine install its security updates
+unattended and reboot when needed.
 
 **Reboot**: all tmpfs content (caches, DinD images, the test database) is gone, by design. Docker starts the
-stack again, the runners register anew, the first builds are cold. Nothing needs restoring. The host starts
-the VM automatically (`--autostart`).
+stack again (`restart: unless-stopped`), the runners register anew, the first builds are cold. Nothing needs
+restoring.
 
 ### Credentials
 
@@ -223,17 +124,17 @@ webhook, no callback; **Organization permissions** → **Self-hosted runners: Re
 GitHub App be installed: Only on this account**. Generate a private key, then **Install App** on `just-tavrn`.
 
 The entrypoint un-exports the credential before the runner starts, and the jobs (user `runner`, sudo blocked
-by `no-new-privileges`) cannot read it from the root-owned processes of their own container. It lives in
-Portainer's stack variables and in the container configuration of the VM, and **a job can reach it anyway**
+by `no-new-privileges`) cannot read it from the root-owned processes of their own container. It lives in the
+stack's `.env` and in the container configuration of the Docker host, and **a job can reach it anyway**
 through the privileged DinD (section [Security](#security), "What remains"): treat it as exposed to every job
-that runs on these runners, keep its permission at **Self-hosted runners** only, and rotate it if the VM is
-ever suspected compromised.
+that runs on these runners, keep its permission at **Self-hosted runners** only, and rotate it if the machine
+is ever suspected compromised.
 
 ## Memory
 
 Every size is an upper limit, not a reservation. What a container writes to its tmpfs counts against its own
 `mem_limit`; what the runners write to the shared cache volume counts against the runner while it runs and
-against no limit after the container restarts. Defaults for a 512 GB VM:
+against no limit after the container restarts. Defaults for a machine with 512 GB of memory:
 
 | Item | Default | Worst case |
 |---|---|---|
@@ -242,14 +143,13 @@ against no limit after the container restarts. Defaults for a 512 GB VM:
 | `dind`: daemon, job containers, `/var/lib/docker` (32 GB) | `DIND_MEMORY=48g` | 48 GB |
 | `postgres`: data (16 GB), shared buffers (2 GB), `/dev/shm` (1 GB) | `POSTGRES_MEMORY=24g` | 24 GB |
 | shared cache volume (Cargo registry, pnpm store, browsers, one target directory per runner) | `RUNNER_CACHE_SIZE=128g` | 128 GB |
-| VM system, Docker, housekeeping | | ~4 GB |
+| System, Docker, housekeeping | | ~4 GB |
 | **Sum** | | **~508 GB** |
 
 Realistic use is far lower: a Rust target directory of the tavrn workspace is 20–40 GB
 (`RUNNER_TARGET_MAX_GB=40` restarts one that grows beyond), a checkout with `node_modules` 2–5 GB, a test run
-10–20 GB of processes. On a larger host, give the VM more memory and raise replicas or limits; keep
-the sum of the worst-case column below the VM's memory, because a VM without swap answers overcommit with the
-OOM killer (inside the VM, never on the host).
+10–20 GB of processes. On a larger machine raise replicas or limits; keep the sum of the worst-case column
+below the machine's memory, because a machine without swap answers overcommit with the OOM killer.
 
 ## Caches
 
@@ -337,8 +237,8 @@ Studio Community, Professional or Enterprise (Community is free for open-source 
 - **The files are not in the image.** `ghcr.io/just-tavrn/tavrn-runner` is a public package, and putting them
   in it would publish them.
 - The entrypoint of a `tavrn-heavy` runner (`TAVRN_XWIN=true` in the stack) downloads them with
-  `cargo-xwin cache xwin` into `/cache/cargo-xwin/xwin` before the runner registers: once per VM boot, by the
-  first runner, while the others wait on a lock (about 7 minutes on a test machine's home line). The jobs get
+  `cargo-xwin cache xwin` into `/cache/cargo-xwin/xwin` before the runner registers: once per boot of the
+  machine, by the first runner, while the others wait on a lock (about 7 minutes on a home line). The jobs get
   `XWIN_CACHE_DIR` pointing at a cargo-xwin directory of their cache slot whose `xwin/` links to that download,
   so a build never downloads the SDK. If the download failed (logged as `cargo-xwin cache download failed`),
   cargo-xwin tries again during the job.
@@ -403,13 +303,13 @@ repositories** is ticked, the barrier against such a pull request is the approva
 of an external contributor runs until a maintainer approves the run. Before approving, read the diff: never
 approve a run of a fork pull request that touches `.github/`, scripts the CI executes (`justfile`,
 `scripts/`, `build.rs`, `package.json` scripts, Dockerfiles) or the lockfiles, unless you would run that code on
-the runner VM yourself; when in doubt, push the change to a branch of the repository after review instead. The
-VM's isolation (its own VLAN, egress allowlist, ephemeral containers, no secrets but the read-only
-`TAVRN_READ_PAT`) limits the damage of a mistake; it does not make approving untrusted code safe.
+the runner machine yourself; when in doubt, push the change to a branch of the repository after review instead.
+The machine's isolation (its own network segment, egress allowlist, ephemeral containers, no secrets but the
+read-only `TAVRN_READ_PAT`) limits the damage of a mistake; it does not make approving untrusted code safe.
 
-**In the stack**: ephemeral runners, `no-new-privileges` (no sudo), no Docker socket of the VM in any
+**In the stack**: ephemeral runners, `no-new-privileges` (no sudo), no Docker socket of the host in any
 container, DinD only on the internal network with TLS client certificates and no published port, PostgreSQL
-only on the internal network, no published ports at all. Never publish DinD's port 2376 or mount the VM's
+only on the internal network, no published ports at all. Never publish DinD's port 2376 or mount the host's
 Docker socket into a runner.
 
 **In the image**: a runner container is restarted, not recreated, after each job, so its layer outlives the
@@ -421,10 +321,10 @@ the top-level runner files back from a root-owned copy before the base entrypoin
 swapped). `/var/tmp`, `/run/lock` and `/opt/hostedtoolcache` are emptied at every start.
 
 **What remains** (the runners are one trust domain; everything that reaches them must be code you would run on
-the VM yourself):
+the machine yourself):
 
 - **DinD is privileged and shared.** Every job gets `DOCKER_HOST`; `docker run --privileged` (or a bind mount of
-  `/`) against DinD is root in the DinD container and from there root on the VM: the other runners, their
+  `/`) against DinD is root in the DinD container and from there root on the machine: the other runners, their
   caches, the PostgreSQL data and the runner credential (section [Credentials](#credentials)). DinD's image and
   build cache (including `RUN --mount=type=cache` mounts) are shared by all jobs.
 - **The shared cache is writable by every job**: the Cargo registry and git checkouts (extracted crate sources
@@ -434,8 +334,8 @@ the VM yourself):
   (`/cache/cargo/config.toml`, which could set a `rustc-wrapper`, a linker or a registry for every job) and
   `/cache/cargo/bin` are removed whenever a runner starts; a job running at the same time could still plant one
   for the jobs running beside it until the next start.
-- **Roadmap**: one DinD per runner container (or rootless DinD / Sysbox) so a job cannot reach the VM or the
-  other runners, per-job caches restored read-only, and the runner credential outside the container
+- **Roadmap**: one DinD per runner container (or rootless DinD / Sysbox) so a job cannot reach the machine or
+  the other runners, per-job caches restored read-only, and the runner credential outside the container
   environment. Until then: only trusted events, and no secret on these runners besides the read-only
   `TAVRN_READ_PAT` and the job's own `GITHUB_TOKEN`.
 
@@ -444,23 +344,14 @@ Electron)") start the app with Chromium's sandbox on, which needs unprivileged u
 is ruled out by `no-new-privileges`). Docker's default seccomp profile denies them, so the runner services run with
 `seccomp=unconfined` (`docker-compose.yml`); `no-new-privileges` and the default AppArmor profile stay, and only
 trusted events reach these runners. Ubuntu 24.04 additionally restricts user namespaces to AppArmor profiles that
-allow them, so the VM sets `kernel.apparmor_restrict_unprivileged_userns=0` (`vm/user-data.yaml`,
-`/etc/sysctl.d/60-userns.conf`). On a VM created before this change, apply it once by hand:
+allow them, so the Docker host needs `kernel.apparmor_restrict_unprivileged_userns=0`:
 
 ```bash
 printf 'kernel.apparmor_restrict_unprivileged_userns = 0\n' | sudo tee /etc/sysctl.d/60-userns.conf
 sudo sysctl --system
 ```
 
-then update the stack in Portainer. Check from a job (or `docker exec` into a runner): `unshare -U true` must
-succeed. Without it the job skips the app's tests with a warning and still builds the packages.
-
-## Stack directly on a host (not recommended once the repositories are public)
-
-The compose file runs unchanged on any Docker host: set `DIND_DNS` to a resolver the containers can reach
-(for example `9.9.9.9`), scale the sizes to the host, and deploy it as above. Privileged DinD then means that a
-job escaping its container is root **on that host** with its LAN in reach. Acceptable only while every
-repository is private and every committer is trusted.
+then recreate the stack. Check from a job (or `docker exec` into a runner): `unshare -U true` must succeed. Without it the job skips the app's tests with a warning and still builds the packages.
 
 ## Troubleshooting
 
@@ -469,10 +360,8 @@ repository is private and every committer is trusted.
 | Runner containers restart in a loop, nothing on GitHub | logs: `401`/`403` at "Obtaining the token" = wrong credential or missing permission; "All of APP_ID, APP_PRIVATE_KEY and APP_LOGIN must be specified" = mixed methods |
 | Jobs stay queued | labels (`tavrn-heavy`, `tavrn-e2e`), runner group allows the repository (public repositories!), runner version older than 30 days (update the image) |
 | `Cannot connect to the Docker daemon at tcp://dind:2376` | `dind` healthy? Restart `dind`; `housekeeping` keeps the TLS material, so the runners' client certificates stay valid |
-| Downloads fail with "connection refused" or hang | `sudo journalctl -k \| grep tavrn-egress` in the VM; add the domain to `dnsmasq-egress.conf`; DinD containers need `DIND_DNS=172.17.0.1` |
+| Downloads fail with "connection refused" or hang | the machine's egress filter: add the destination to its allowlist; DinD containers need `DIND_DNS` pointing at a resolver they can reach |
 | `docker pull` in a job fails with `lookup … on 127.0.0.11:53: server misbehaving` (SERVFAIL) | the inner daemon's bridge shadows the resolver address: `docker exec tavrn-runner-dind-1 ip addr show docker0` must not show 172.17.0.1 (the stack sets `--bip 10.200.0.1/16`); redeploy the stack after updating the compose file |
 | Container killed with exit code 137 | OOM: tmpfs content counts against `mem_limit`; raise the limit or lower the tmpfs sizes |
 | `no space left on device` in a build | `RUNNER_WORK_SIZE`, `RUNNER_CACHE_SIZE`, `DIND_STORAGE_SIZE` or `POSTGRES_DATA_SIZE` (count the `t_*` databases: `docker exec tavrn-runner-postgres-1 psql -U tavrn -d postgres -Atc "SELECT count(*) FROM pg_database WHERE datname LIKE 't\\_%'"`; lower `TEST_DB_MAX_AGE_HOURS`) |
-| VM has no network | Docker's `br_netfilter` on the host: the `DOCKER-USER` rule above; the VLAN tagged on both trunk ports of a managed switch; `bridge link show` lists the VLAN interface and the VM's `vnetN` in `br-ci` |
-| Lookups fail in the VM | the router accepts DNS from the CI zone and its resolver answers on that interface; in the VM `dig @<router address> github.com` |
 | `rustup` tries to install a toolchain | the repository pins a version the image lacks: rebuild the image with `RUST_TOOLCHAIN` set accordingly |

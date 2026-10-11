@@ -17,7 +17,7 @@ decentralized, end-to-end encrypted community chat. The organization's landing p
 | [scripts/github-labels.sh](scripts/github-labels.sh) | Creates the common label set in a repository |
 | [scripts/github-rulesets.sh](scripts/github-rulesets.sh) | Creates the `main` and release-tag rulesets of a repository (docs/GITHUB.md, step 8) |
 | [docs/GITHUB.md](docs/GITHUB.md) | Organization and repository settings the owner sets by hand |
-| [runner/](runner/README.md) | Self-hosted runners: the runner VM (`runner/vm/`), the Portainer stack and the runner image |
+| [runner/](runner/README.md) | Self-hosted runners: the Docker Compose stack, the runner image and what the machine running them must provide |
 | [.github/dependabot.yml](.github/dependabot.yml) | Updates of the SHA-pinned actions and the digest-pinned runner images |
 
 ## Reusable workflows
@@ -48,7 +48,7 @@ and the git dependencies between the repositories.
 
 ```bash
 scripts/check-spdx.sh      # SPDX headers of workflows and scripts
-shellcheck scripts/*.sh runner/*.sh runner/vm/*.sh
+shellcheck scripts/*.sh runner/*.sh
 actionlint                 # workflow lint (https://github.com/rhysd/actionlint)
 ```
 

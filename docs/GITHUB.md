@@ -148,24 +148,24 @@ back to `false` to stop everything.
 ## 5. Self-hosted runners (test host)
 
 The heavy CI jobs (`tavrn-heavy`: Rust, JavaScript, container builds) and the end-to-end suite (`tavrn-e2e`)
-run on ephemeral self-hosted runners in a dedicated VM on a test host, deployed as a Portainer
-stack. Setup, credentials, network isolation, memory sizing and updates: [runner/README.md](../runner/README.md).
+run on ephemeral self-hosted runners: a Docker Compose stack on an isolated machine of the operator's choice.
+Stack, credentials, isolation requirements, memory sizing and updates: [runner/README.md](../runner/README.md).
 In short:
 
-1. Host network: a VLAN and firewall zone of its own on the router that reaches only the internet, a bridge
-   `br-ci` without host address on the host (README, "1. Host network").
-2. The VM: `runner/vm/make-vm.sh` (README, "2. The VM").
-3. A GitHub App (or a fine-grained PAT) with the organization permission **Self-hosted runners: Read and
+1. An isolated machine (typically a dedicated VM) in a network segment that reaches only the internet, with an
+   egress allowlist (README, "Isolation").
+2. A GitHub App (or a fine-grained PAT) with the organization permission **Self-hosted runners: Read and
    write** for the runner registration (README, "Credentials").
-4. Make the package `ghcr.io/just-tavrn/tavrn-runner` public after its first build (`runner-image.yml`).
-5. The Portainer stack `runner/docker-compose.yml` with the variables of `runner/.env.example`.
-6. Organization **Settings** → **Actions** → **Runner groups** → **Default**: the Free plan has no custom
+3. Make the package `ghcr.io/just-tavrn/tavrn-runner` public after its first build (`runner-image.yml`).
+4. The stack `runner/docker-compose.yml` with the variables of `runner/.env.example` (README, "Deploying the
+   stack").
+5. Organization **Settings** → **Actions** → **Runner groups** → **Default**: the Free plan has no custom
    groups; tick **Allow public repositories** only when the repositories go public. The workflows keep forks
    and Dependabot off the self-hosted runners only as long as their workflow files are unchanged: a fork pull
    request runs its own copy, so the approval of step 2.2 is the real barrier (runner/README.md, "Security").
-7. Desktop builds (tavrn-web's Tauri app): the `tavrn-heavy` runners download the Microsoft CRT and Windows SDK
+6. Desktop builds (tavrn-web's Tauri app): the `tavrn-heavy` runners download the Microsoft CRT and Windows SDK
    into their cache at start, under Microsoft's Visual Studio Build Tools license (README, "Desktop builds");
-   the VM's egress allowlist needs `aka.ms` and `download.visualstudio.microsoft.com` for it.
+   the machine's egress allowlist needs `aka.ms` and `download.visualstudio.microsoft.com` for it.
 
 ## 6. Community: Discussions, labels, profile
 
