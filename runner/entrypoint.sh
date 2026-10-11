@@ -46,7 +46,13 @@ restore_runner_files() {
       exit 1
     fi
   done
-  find "$runner_dir" -mindepth 1 -maxdepth 1 ! -name bin ! -name externals ! -name _diag -exec rm -rf {} +
+  # _diag too (a symlink there would point the root-run config.sh's logs anywhere), unless it is the stack's tmpfs mount,
+  # which is fresh at every start and cannot be replaced by the job user.
+  if mountpoint -q "$runner_dir/_diag"; then
+    find "$runner_dir" -mindepth 1 -maxdepth 1 ! -name bin ! -name externals ! -name _diag -exec rm -rf {} +
+  else
+    find "$runner_dir" -mindepth 1 -maxdepth 1 ! -name bin ! -name externals -exec rm -rf {} +
+  fi
   cp -a "$dist/." "$runner_dir/"
   chown root:root "$runner_dir" && chmod 0755 "$runner_dir"
   find /var/tmp /run/lock /opt/hostedtoolcache -mindepth 1 -delete 2>/dev/null || true
@@ -60,8 +66,10 @@ restore_runner_files
 
 if [ -d "$cache" ] && mountpoint -q "$cache"; then
   install -d -o runner -g runner "$cache/cargo" "$cache/pnpm-store" "$cache/slots"
-  # `cargo install` of an earlier job: never on PATH (runner/Dockerfile), removed anyway.
-  rm -rf "$cache/cargo/bin"
+  # `cargo install` of an earlier job: never on PATH (runner/Dockerfile), removed anyway. Cargo configuration in the
+  # shared CARGO_HOME (or a .cargo/ above the jobs' directories) could set a rustc wrapper, a linker or a registry
+  # for every later job: removed at every start.
+  rm -rf "$cache/cargo/bin" "$cache/cargo/config" "$cache/cargo/config.toml" "$cache/.cargo"
 
   slot=""
   for i in $(seq 1 "$slots"); do

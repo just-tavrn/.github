@@ -430,7 +430,10 @@ the VM yourself):
 - **The shared cache is writable by every job**: the Cargo registry and git checkouts (extracted crate sources
   are not re-verified), the pnpm store, the Playwright browsers and the target directory of a slot (build-script
   output and compiled artefacts, reused by the next job in that slot). A job can plant code that later jobs
-  run. A stack restart empties all of it (tmpfs).
+  run. A stack restart empties all of it (tmpfs). Cargo configuration in the shared `CARGO_HOME`
+  (`/cache/cargo/config.toml`, which could set a `rustc-wrapper`, a linker or a registry for every job) and
+  `/cache/cargo/bin` are removed whenever a runner starts; a job running at the same time could still plant one
+  for the jobs running beside it until the next start.
 - **Roadmap**: one DinD per runner container (or rootless DinD / Sysbox) so a job cannot reach the VM or the
   other runners, per-job caches restored read-only, and the runner credential outside the container
   environment. Until then: only trusted events, and no secret on these runners besides the read-only
