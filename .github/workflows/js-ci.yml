@@ -72,6 +72,11 @@ on:
         description: Checkout submodules (false, true or recursive).
         type: string
         default: recursive
+      skip:
+        description: "Report the job as skipped without running anything (the caller decided the change needs no build, for example docs only); a skipped job counts as a passed check"
+        type: boolean
+        required: false
+        default: false
     secrets:
       READ_TOKEN:
         description: Optional token with read access to the private just-tavrn repositories (submodules, git dependencies).
@@ -86,7 +91,7 @@ jobs:
     # Self-hosted runners execute the job's code in the runner VM: forks, Dependabot and dependabot/* branches (even
     # when a person dispatches the run) never get them (the expression falls back to ubuntu-latest for those;
     # runner/README.md, "Security").
-    if: ${{ vars.CI_ENABLED == 'true' }}
+    if: ${{ vars.CI_ENABLED == 'true' && !inputs.skip }}
     runs-on: ${{ fromJSON(startsWith(inputs.runner, 'tavrn-') && github.event_name != 'pull_request_target' && github.actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/heads/dependabot/') && !startsWith(github.head_ref, 'dependabot/') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && format('["self-hosted","linux","x64","{0}"]', inputs.runner) || (startsWith(inputs.runner, 'tavrn-') && '"ubuntu-latest"' || toJSON(inputs.runner))) }}
     defaults:
       run:

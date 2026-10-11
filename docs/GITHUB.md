@@ -62,6 +62,13 @@ This repository: **Settings** → **Actions** → **General** → **Access**: **
 the 'just-tavrn' organization** (set through the API at creation; check it). Without it the code
 repositories cannot call the reusable workflows while this repository is private.
 
+### Docs-only changes
+
+`rust-ci.yml` and `js-ci.yml` take `skip: true`: the job is reported as skipped without running anything, which counts
+as a passed required check. The code repositories compute it in a `changes` job (Markdown files, `docs/` and the
+deploy examples count as docs) so a documentation change runs only the cheap hygiene jobs; the website picks the
+documentation up through its source submodules (Dependabot bumps them daily).
+
 ### Reusable workflows in release paths
 
 A workflow that runs for a release tag and calls a reusable workflow of this repository (tavrn-node's
