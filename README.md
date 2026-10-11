@@ -31,7 +31,7 @@ file starts with a commented caller example and documents its inputs.
 | [rust-ci.yml](.github/workflows/rust-ci.yml) | rustfmt, clippy, tests (optional PostgreSQL service, extra targets and clippy runs), cargo-deny |
 | [js-ci.yml](.github/workflows/js-ci.yml) | pnpm install with the frozen lockfile, SPDX and license checks, typecheck, tests, optional build |
 | [gitleaks.yml](.github/workflows/gitleaks.yml) | Secret scan of the full history with the gitleaks CLI |
-| [docker-publish.yml](.github/workflows/docker-publish.yml) | Container build with provenance and SBOM; pushes to `ghcr.io/just-tavrn/<image>` on main and `v*` tags when asked |
+| [docker-publish.yml](.github/workflows/docker-publish.yml) | Container build with provenance and SBOM, for one or several platforms (one manifest list; QEMU registered for multi-platform builds); pushes to `ghcr.io/just-tavrn/<image>` on main and `v*` tags when asked |
 | [e2e.yml](.github/workflows/e2e.yml) | Playwright run on the self-hosted runners `tavrn-e2e`, against a node image, artifact or binary |
 | [runner-image.yml](.github/workflows/runner-image.yml) | Builds and publishes the runner image `ghcr.io/just-tavrn/tavrn-runner` (not reusable) |
 
