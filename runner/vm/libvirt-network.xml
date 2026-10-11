@@ -1,9 +1,0 @@
-<!-- SPDX-License-Identifier: Apache-2.0 -->
-<!-- libvirt network of the runner VM (runner/README.md, "1. Host network"): bridge mode on the host bridge
-     br-ci, which carries only the CI VLAN and has no host address. No NAT, no DHCP, no DNS from libvirt.
-     make-vm.sh defines it when it is missing (virsh net-define, net-start, net-autostart). -->
-<network>
-  <name>@@VM_NETWORK@@</name>
-  <forward mode="bridge"/>
-  <bridge name="@@VM_BRIDGE@@"/>
-</network>

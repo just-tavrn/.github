@@ -23,7 +23,7 @@ jobs:
       - name: SPDX headers
         run: scripts/check-spdx.sh
       - name: shellcheck
-        run: shellcheck scripts/*.sh runner/*.sh runner/vm/*.sh
+        run: shellcheck scripts/*.sh runner/*.sh
       - name: actionlint
         env:
           ACTIONLINT_VERSION: "1.7.12"

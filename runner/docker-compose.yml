@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Self-hosted GitHub Actions runners for the just-tavrn organization (runner/README.md). Deploy as a Portainer
-# stack INSIDE the dedicated runner VM (runner/vm/), with the variables of .env.example.
+# Self-hosted GitHub Actions runners for the just-tavrn organization (runner/README.md). Deploy with Docker Compose
+# on an isolated machine of your own (README, "Isolation"), with the variables of .env.example.
 #
 #   runner-heavy  Rust, JavaScript and docker jobs (label tavrn-heavy), RUNNER_HEAVY_REPLICAS containers
 #   runner-e2e    Playwright end-to-end jobs (label tavrn-e2e), RUNNER_E2E_REPLICAS containers
@@ -131,14 +131,14 @@ services:
 
   dind:
     image: docker:29-dind@sha256:7dcdfc4a20246236f558175182ccace1eb15a41bd3eb119dd2284f393498b7c1
-    # Privileged is what DinD needs; it is why the stack runs inside a dedicated VM (runner/vm/).
+    # Privileged is what DinD needs; it is why the stack belongs on an isolated machine (README, "Isolation").
     privileged: true
     restart: unless-stopped
     hostname: dind
     environment:
       DOCKER_TLS_CERTDIR: /certs
     # Resolver for the job containers inside DinD (their default bridge cannot use Docker's embedded DNS);
-    # in the VM this is the egress-filtering dnsmasq on docker0 (runner/vm/). The inner daemon's own bridge
+    # on an egress-filtered machine this is its filtering resolver on docker0. The inner daemon's own bridge
     # and address pool must stay away from 172.17.0.0/16: with Docker's defaults the inner docker0 would
     # take 172.17.0.1 itself and every lookup (the daemon's pulls and the job containers) would end in
     # SERVFAIL. The 10.200/10.201 ranges are outside Docker's default pools, so they never collide with the
