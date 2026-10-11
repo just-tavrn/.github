@@ -56,14 +56,14 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && docker --version && docker buildx version
 
-# Node 24 (official tarball, checksum verified) with pnpm through corepack. The tarball ships group-writable files;
-# the writability check at the end of this file refuses them.
+# Node 24 (official tarball, checksum verified) with pnpm through corepack. The tarball's entries belong to uid 1000
+# (the job user's id here): root owns the extracted files, or the writability check at the end of this file fails.
 RUN cd /tmp \
     && file="node-v${NODE_VERSION}-linux-x64.tar.xz" \
     && curl -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/${file}" \
     && curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt" | grep " ${file}\$" | sha256sum -c - \
-    && mkdir -p /opt/node && tar -xJf "$file" -C /opt/node --strip-components=1 && rm "$file" \
-    && chmod -R go-w /opt/node \
+    && mkdir -p /opt/node && tar -xJf "$file" -C /opt/node --strip-components=1 --no-same-owner && rm "$file" \
+    && chown -R root:root /opt/node && chmod -R go-w /opt/node \
     && corepack enable --install-directory /opt/node/bin pnpm \
     && corepack install --global "pnpm@${PNPM_VERSION}" \
     && chmod -R a+rX "$COREPACK_HOME" \
