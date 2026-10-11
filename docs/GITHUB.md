@@ -49,7 +49,8 @@ Organization **Settings** → **Actions** → **General**:
    Actions and reusable workflows from `just-tavrn` repositories are always allowed by this policy.
    (`taiki-e/install-action` installs cargo-deny and tauri-driver in tavrn-web's GitHub-hosted desktop builds.)
    Tick **Require actions to be pinned to a full-length commit SHA** as well once every workflow pins its
-   actions; the organization's reusable workflows are called by branch (`@main`) and are not actions.
+   actions. The organization's reusable workflows are not actions: CI callers use them by branch (`@main`),
+   release paths by commit (see "Reusable workflows in release paths" below).
 2. **Fork pull request workflows from outside collaborators** (applies once public): **Require approval for
    all external contributors**. For private repositories leave **Run workflows from fork pull requests**
    unticked.
@@ -60,6 +61,31 @@ Organization **Settings** → **Actions** → **General**:
 This repository: **Settings** → **Actions** → **General** → **Access**: **Accessible from repositories in
 the 'just-tavrn' organization** (set through the API at creation; check it). Without it the code
 repositories cannot call the reusable workflows while this repository is private.
+
+### Reusable workflows in release paths
+
+A workflow that runs for a release tag and calls a reusable workflow of this repository (tavrn-node's
+`release.yml` calls `docker-publish.yml`) pins it by full commit SHA with the date as a comment, so a later
+change on `main` here never reaches a release unreviewed:
+
+```yaml
+uses: just-tavrn/.github/.github/workflows/docker-publish.yml@<40-character sha> # main of 2026-10-11
+```
+
+Bumping it is a pull request in the calling repository: take the commit of `main` here
+(`git ls-remote https://github.com/just-tavrn/.github refs/heads/main`), read the diff of the reusable workflow
+since the pinned commit (`git log -p <old>..<new> -- .github/workflows/docker-publish.yml`), replace the SHA and
+the date, and let the caller's CI run. CI workflows (pull requests, `main`) keep `@main`.
+
+### The `release` environment
+
+Every job that holds a release secret (the updater signing key of tavrn-web, `NPM_TOKEN`,
+`CARGO_REGISTRY_TOKEN`) declares `environment: release`. The environment exists in each repository that
+publishes (tavrn-protocol, tavrn-crypto, tavrn-js, tavrn-web): deployment only from tags `v*`, a required
+reviewer (an organization owner), and those secrets as environment secrets, never as repository secrets (a
+repository secret is readable by every workflow of every branch). Such a job runs no dependency code: it
+downloads what an earlier job built and only signs or uploads it. Only organization owners can create `v*`
+tags (the tag ruleset, step 8).
 
 ## 3. Tokens and secrets
 
@@ -174,7 +200,8 @@ release tags and releases first: the tag ruleset of step 1 makes `v*` tags perma
 1. Rulesets for `main` and the release tags: `scripts/github-rulesets.sh <repo>` creates (or updates) them
    through the API: changes to `main` only through pull requests with every CI check green on the latest
    commit (the check names per repository are in the script), no force pushes and no deletions; admins may
-   bypass through a pull request only; `v*` tags can neither be moved nor deleted. Reviews: `--approvals 1`
+   bypass through a pull request only; `v*` tags can neither be moved nor deleted, and only organization
+   owners can create them (a release tag starts the publish jobs). Reviews: `--approvals 1`
    (with a code-owner review) once there is more than one maintainer. Until the repository is public the API
    refuses rulesets on the Free plan, so the same rule holds as a convention: nobody pushes to `main`, every
    change is a pull request, merged branches are deleted (`delete branch on merge` is set everywhere).
