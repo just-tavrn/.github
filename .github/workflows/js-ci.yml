@@ -83,10 +83,11 @@ permissions:
 jobs:
   js:
     name: JavaScript (install, typecheck, test)
-    # Self-hosted runners execute the job's code in the runner VM: forks and Dependabot never get them (the
-    # expression falls back to ubuntu-latest for those events; runner/README.md, "Security").
+    # Self-hosted runners execute the job's code in the runner VM: forks, Dependabot and dependabot/* branches (even
+    # when a person dispatches the run) never get them (the expression falls back to ubuntu-latest for those;
+    # runner/README.md, "Security").
     if: ${{ vars.CI_ENABLED == 'true' }}
-    runs-on: ${{ fromJSON(startsWith(inputs.runner, 'tavrn-') && github.event_name != 'pull_request_target' && github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && format('["self-hosted","linux","x64","{0}"]', inputs.runner) || (startsWith(inputs.runner, 'tavrn-') && '"ubuntu-latest"' || toJSON(inputs.runner))) }}
+    runs-on: ${{ fromJSON(startsWith(inputs.runner, 'tavrn-') && github.event_name != 'pull_request_target' && github.actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/heads/dependabot/') && !startsWith(github.head_ref, 'dependabot/') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && format('["self-hosted","linux","x64","{0}"]', inputs.runner) || (startsWith(inputs.runner, 'tavrn-') && '"ubuntu-latest"' || toJSON(inputs.runner))) }}
     defaults:
       run:
         working-directory: ${{ inputs.working-directory }}

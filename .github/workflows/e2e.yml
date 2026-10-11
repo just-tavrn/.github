@@ -84,8 +84,9 @@ permissions:
 jobs:
   e2e:
     name: End-to-end (Playwright)
-    # Never for forks, Dependabot or pull_request_target: the runner executes the checked-out code.
-    if: ${{ vars.CI_ENABLED == 'true' && github.event_name != 'pull_request_target' && github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) }}
+    # Never for forks, Dependabot, dependabot/* branches (even dispatched by a person) or pull_request_target: the
+    # runner executes the checked-out code.
+    if: ${{ vars.CI_ENABLED == 'true' && github.event_name != 'pull_request_target' && github.actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/heads/dependabot/') && !startsWith(github.head_ref, 'dependabot/') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) }}
     runs-on: [self-hosted, linux, x64, tavrn-e2e]
     timeout-minutes: 90
     concurrency:
