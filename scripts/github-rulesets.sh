@@ -12,7 +12,8 @@
 #   scripts/github-rulesets.sh [--approvals N] [--dry-run] [repo ...]
 #
 # "main": changes only through pull requests (N approving reviews, default 0 while the maintainers are one
-# person; stale reviews are dismissed, review threads must be resolved, merge or squash), every CI check of
+# person; no extra approval for "unattributed" commits, a GitHub default that would block a single maintainer whose
+# commits carry a Co-Authored-By trailer; stale reviews are dismissed, review threads must be resolved, merge or squash), every CI check of
 # the repository must pass on the latest commit, no force pushes, no deletion. Repository admins may bypass
 # the rules through a pull request only (a merge while the CI runner is down), never with a direct push.
 # "release tags": v* tags cannot be moved or deleted, not even by admins. "release tag creation": only
@@ -95,6 +96,7 @@ branch_ruleset() {
     { "type": "non_fast_forward" },
     { "type": "pull_request", "parameters": {
         "required_approving_review_count": $approvals,
+        "require_extra_approval_for_unattributed_changes": false,
         "dismiss_stale_reviews_on_push": true,
         "require_code_owner_review": $code_owners,
         "require_last_push_approval": false,
