@@ -82,6 +82,9 @@ x-runner-env: &runner-env
   DOCKER_CERT_PATH: /certs/client
   # Tests (the cache slot paths, CARGO_HOME and the private Valkey come from the image's entrypoint).
   TAVRN_TEST_DATABASE_URL: postgres://tavrn:tavrn@postgres:5432/tavrn_test
+  # How much slower than a developer machine a runner may be: the suites scale every wait for an event by it
+  # (tavrn-node tests/common, tavrn-web e2e/tests/timeouts.ts), never fixed delays (README.md, "Caches").
+  TAVRN_TEST_TIMEOUT_FACTOR: ${RUNNER_TEST_TIMEOUT_FACTOR:-3}
   CARGO_NET_GIT_FETCH_WITH_CLI: "true"
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"

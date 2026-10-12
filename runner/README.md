@@ -174,6 +174,12 @@ GitHub-hosted runners; self-hosted jobs always get `TAVRN_TEST_DATABASE_URL` (th
 `TAVRN_TEST_CACHE_URL` (a private Valkey in every runner container: the cluster outage test kills all clients
 of its Valkey, which would break parallel jobs on a shared one).
 
+Every job also gets `TAVRN_TEST_TIMEOUT_FACTOR` (`RUNNER_TEST_TIMEOUT_FACTOR`, default 3): the test suites
+multiply each limit they wait for an event or a condition by it (tavrn-node's integration tests, the Playwright
+suites of tavrn-web), so a runner whose CPUs another job shares gets more time where the tests wait, and nowhere
+else (fixed delays and "nothing arrives within" windows stay as they are). On a developer machine the factor is
+1. A flaky wait is fixed in the test (wait for the event, not for time); the factor is not the fix.
+
 The node tests create one database `t_<ulid>` per test node on that PostgreSQL (about 14 MB each, on the tmpfs
 of `POSTGRES_DATA_SIZE`). They clean up after themselves: a test node drops its database when it goes away, so
 a run only holds the databases of the tests running at that moment; and before creating one, the tests drop

@@ -52,6 +52,13 @@ on:
         description: Arguments for `playwright test`.
         type: string
         default: "--project chromium --project mobile-android --workers=2"
+      json-report:
+        description: >-
+          Playwright's JSON report relative to working-directory (the suite's config writes it with the json reporter in
+          CI); the job summary counts its flaky tests (passed only on a retry) and annotates each one. A missing report
+          is noted, not an error.
+        type: string
+        default: test-results/results.json
       browsers:
         description: Browsers to install for Playwright (the runner image has Chromium and its system dependencies; others download into the cache without system dependencies).
         type: string
@@ -202,8 +209,48 @@ jobs:
         run: |
           # shellcheck disable=SC2086 # word splitting of the argument list is intended
           pnpm exec playwright test $PLAYWRIGHT_ARGS
+      # Retries are a safety net, never silent: every test that passed only on a retry is counted in the job summary
+      # ("N flaky") and gets a warning annotation, and the report is uploaded as for a failure.
+      - name: Flaky tests
+        id: flaky
+        if: ${{ always() }}
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          REPORT: ${{ inputs.json-report }}
+        run: |
+          node - "$REPORT" <<'JS'
+          const fs = require("node:fs");
+          const file = process.argv[2];
+          const output = (k, v) => process.env.GITHUB_OUTPUT && fs.appendFileSync(process.env.GITHUB_OUTPUT, `${k}=${v}\n`);
+          if (!fs.existsSync(file)) {
+            console.log(`no Playwright JSON report at ${file} (the json reporter writes it in CI)`);
+            output("flaky", 0);
+            process.exit(0);
+          }
+          const report = JSON.parse(fs.readFileSync(file, "utf8"));
+          const flaky = [];
+          const walk = (suite, path) => {
+            for (const spec of suite.specs ?? []) {
+              for (const t of spec.tests ?? []) {
+                if (t.status === "flaky") flaky.push(`${t.projectName} › ${spec.file}:${spec.line} › ${[...path, spec.title].join(" › ")}`);
+              }
+            }
+            for (const child of suite.suites ?? []) walk(child, [...path, child.title]);
+          };
+          for (const top of report.suites ?? []) walk(top, []);
+          const s = report.stats ?? {};
+          const line = `Playwright: ${s.expected ?? 0} passed, ${flaky.length} flaky, ${s.unexpected ?? 0} failed, ${s.skipped ?? 0} skipped`;
+          const escape = (m) => m.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
+          console.log(line);
+          for (const f of flaky) console.log(`::warning title=Flaky test (passed only on a retry)::${escape(f)}`);
+          const list = flaky.map((f) => `- ${f}`).join("\n");
+          if (process.env.GITHUB_STEP_SUMMARY) {
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### ${line}\n${flaky.length ? `\n${list}\n` : ""}`);
+          }
+          output("flaky", flaky.length);
+          JS
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: ${{ failure() }}
+        if: ${{ failure() || steps.flaky.outputs.flaky != '0' }}
         with:
           name: playwright-report
           path: |
