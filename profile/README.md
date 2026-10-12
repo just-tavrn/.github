@@ -1,4 +1,14 @@
-# tavrn
+<p align="center">
+  <a href="https://tavrn.org"><img src="https://raw.githubusercontent.com/just-tavrn/tavrn/main/assets/logo-320.png" alt="tavrn" width="200"></a>
+</p>
+
+<h1 align="center">tavrn</h1>
+
+<p align="center">
+  <strong><a href="https://tavrn.org">tavrn.org</a></strong> — the website for users and node operators:
+  <a href="https://tavrn.org/download/">downloads</a> · <a href="https://tavrn.org/docs/">documentation</a> ·
+  <a href="https://tavrn.org/status/">status of the official node</a>
+</p>
 
 **tavrn is a decentralized, fully open-source community chat**: rooms with text, voice, announcement and
 forum channels, roles and permissions, screen sharing, direct messages and friends across all nodes.
@@ -27,6 +37,8 @@ CI workflows.
 
 ## Get in touch
 
+- **Just want to use tavrn?** Everything you need is on [tavrn.org](https://tavrn.org): the apps, the web app of the
+  official node and the guides; the repositories here are for people who build or run tavrn.
 - **Questions, ideas, show and tell:** [Discussions](https://github.com/just-tavrn/tavrn/discussions).
 - **Bugs and feature requests:** an issue in the repository of the affected component (unsure? start a
   discussion).
