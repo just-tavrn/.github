@@ -128,13 +128,17 @@ RUN cd /tmp \
     && ffmpeg -hide_banner -encoders | grep -c libwebp_anim
 
 # Desktop app (Tauri 2, runner/README.md "Desktop builds"): WebKitGTK and GTK development files for the Linux
-# build and its deb/AppImage bundles, WebKitWebDriver and Xvfb for WebDriver tests, NSIS for the Windows installer.
+# build and its deb/AppImage bundles, WebKitWebDriver and Xvfb for WebDriver tests, NSIS for the Windows installer,
+# libudev + pkg-config for the Electron shell's FIDO2 passkey module (tavrn-web #97; perl and make only for the
+# vendored OpenSSL of that crate's tests).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev patchelf xdg-utils file \
         webkit2gtk-driver xvfb xdotool gnome-keyring nsis gnupg \
+        libudev-dev pkg-config perl make \
     && rm -rf /var/lib/apt/lists/* \
-    && command -v WebKitWebDriver xvfb-run xdotool gnome-keyring-daemon >/dev/null \
+    && command -v WebKitWebDriver xvfb-run xdotool gnome-keyring-daemon pkg-config perl make >/dev/null \
+    && test -f /usr/include/libudev.h \
     && makensis -VERSION
 
 # LLVM 21 from apt.llvm.org (the key's fingerprint is checked; Noble ships LLVM 18): the native voice engine's
