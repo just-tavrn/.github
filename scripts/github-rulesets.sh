@@ -52,7 +52,7 @@ review="Dependency review"
 contexts() {
   case "$1" in
     .github)
-      printf '%s\n' "Lint (actionlint, shellcheck, SPDX)" "$gitleaks" ;;
+      printf '%s\n' "Lint (actionlint, shellcheck, SPDX)" "Publication hygiene" "$gitleaks" ;;
     tavrn)
       printf '%s\n' "Markdown lint, links, SPDX headers, shellcheck" "Publication hygiene" "$gitleaks" "$cla" ;;
     tavrn-protocol)

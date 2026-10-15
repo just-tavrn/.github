@@ -156,8 +156,8 @@ callers pass this token as `READ_TOKEN` to the reusable workflows.
 
 ### `PUBLISH_CHECK_PRIVATE` (publication hygiene)
 
-`scripts/publish-check.sh` (job "Publication hygiene" in `tavrn`, `tavrn-website`, `tavrn-protocol`,
-`tavrn-crypto`, `tavrn-js`, `tavrn-node` and `tavrn-web`; this repository runs no publication check) refuses
+`scripts/publish-check.sh` (job "Publication hygiene" in this repository, `tavrn`, `tavrn-website`, `tavrn-protocol`,
+`tavrn-crypto`, `tavrn-js`, `tavrn-node` and `tavrn-web`) refuses
 private domains, hosts and addresses. The list cannot live in the public script, so the CI reads it from the
 secret `PUBLISH_CHECK_PRIVATE`: comma-separated literal strings, the same as the owner's local, untracked
 `.publish-check.private` (one string per line). Pull requests opened by Dependabot run with **Dependabot
