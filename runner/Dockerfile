@@ -6,34 +6,23 @@
 # registers the runner with an access token or a GitHub App, supports ephemeral runners and deregisters on exit.
 #
 # Pinned tool versions; keep them in sync with the code repositories:
-#   Node 24 + pnpm (package.json "packageManager"), Playwright (e2e lockfile), livekit-server (justfile,
-#   deploy/Dockerfile), wasm-bindgen-cli (Cargo.lock), cargo-deny / gitleaks / actionlint (reusable workflows),
-#   cargo-xwin / tauri-driver (the desktop app of tavrn-web, apps/desktop).
+#   Node 24 + pnpm (package.json "packageManager"), Playwright (e2e lockfile), livekit-server and ffmpeg (tavrn-node:
+#   justfile, ci.yml, deploy/Dockerfile; its README.md "Tool versions"), wasm-bindgen-cli (Cargo.lock), cargo-deny /
+#   gitleaks / actionlint (reusable workflows), cargo-xwin / tauri-driver (the desktop app of tavrn-web, apps/desktop).
+# The GitHub release downloads are checked against a SHA-256 pinned here, never against a sum fetched from the same
+# release; Node.js and rustup against their sites' checksum files. Each ARG is declared right before the RUN that
+# uses it: every RUN after a changed ARG misses the cache, so a bump rebuilds only its own layer and the ones after it.
 # The Rust toolchain follows rust-toolchain.toml of the code repositories (channel stable, rustfmt, clippy,
-# wasm32-unknown-unknown) as of the image build; rebuild the image to pick up a new stable release.
+# wasm32-unknown-unknown) as of the image build; the weekly scheduled build (runner-image.yml) runs without the layer
+# cache and so picks up a new stable release and the distribution's updates.
 
 # Valkey for the cluster tests (TAVRN_TEST_CACHE_URL), one private instance per runner container.
 FROM valkey/valkey:8.1.10@sha256:640c5e62cea04b6d6f2084232651d0cc70362d31f4f805e7be94dbed6855e8f2 AS valkey
 # livekit-server for the voice tests, the same release the node image ships.
-FROM livekit/livekit-server:v1.13.7@sha256:6fd3b7088874c4d119160dd688798dfec852bc014786d392caad15f6f63912a3 AS livekit
+FROM livekit/livekit-server:v1.13.8@sha256:ad961c9b4b064298cc08d618d772671f7c783e036001388079fa813929cc357e AS livekit
 
 # Base image (Dependabot keeps tag and digest current; the runner version is the tag).
 FROM myoung34/github-runner:2.338.0-ubuntu-noble@sha256:2112bde2ee92b7480babfbe3043d0461e322b97ca01e6ac94698895f3dc1f528
-
-ARG NODE_VERSION=24.21.0
-ARG PNPM_VERSION=12.9.1
-ARG PLAYWRIGHT_VERSION=1.63.0
-ARG RUST_TOOLCHAIN=stable
-ARG JUST_VERSION=1.58.0
-ARG CARGO_DENY_VERSION=0.20.2
-ARG CARGO_SWEEP_VERSION=0.8.0
-ARG WASM_BINDGEN_VERSION=0.2.129
-ARG GITLEAKS_VERSION=8.30.1
-ARG ACTIONLINT_VERSION=1.7.12
-ARG CARGO_XWIN_VERSION=0.23.1
-ARG TAURI_DRIVER_VERSION=2.1.0
-# BtbN static ffmpeg (GPL build, with libwebp): tooling for the media tests only, never redistributed with tavrn.
-ARG FFMPEG_ASSET=ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz
 
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
@@ -58,6 +47,8 @@ RUN apt-get update \
 
 # Node 24 (official tarball, checksum verified) with pnpm through corepack. The tarball's entries belong to uid 1000
 # (the job user's id here): root owns the extracted files, or the writability check at the end of this file fails.
+ARG NODE_VERSION=24.21.0
+ARG PNPM_VERSION=12.9.1
 RUN cd /tmp \
     && file="node-v${NODE_VERSION}-linux-x64.tar.xz" \
     && curl -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/${file}" \
@@ -71,11 +62,13 @@ RUN cd /tmp \
 
 # Playwright: Chromium and its system libraries only (the e2e jobs run the chromium, mobile-android and
 # tablet-chromium projects). The entrypoint seeds the shared cache from here.
+ARG PLAYWRIGHT_VERSION=1.63.0
 RUN npx --yes "playwright@${PLAYWRIGHT_VERSION}" install --with-deps chromium \
     && chmod -R a+rX "$PLAYWRIGHT_BROWSERS_PATH" \
     && rm -rf /root/.npm /var/lib/apt/lists/*
 
 # Rust (rustup, checksum verified) with the components and the target of rust-toolchain.toml.
+ARG RUST_TOOLCHAIN=stable
 RUN cd /tmp \
     && base="https://static.rust-lang.org/rustup/dist/x86_64-unknown-linux-gnu" \
     && curl -fsSLO "$base/rustup-init" \
@@ -86,43 +79,59 @@ RUN cd /tmp \
     && rm rustup-init \
     && cargo --version && cargo clippy --version && rustfmt --version
 
-# Rust tools: release binaries where upstream publishes checksums, cargo-sweep from source.
+# Rust tools: release binaries checked against the pinned SHA-256 (x86_64-unknown-linux-musl builds), cargo-sweep from
+# source.
+ARG JUST_VERSION=1.58.0
+ARG JUST_SHA256=4a5cc2f53e6f0f8c59092a6cc38291eb729d46a7dd95d3ae582008881b84931d
+ARG CARGO_DENY_VERSION=0.20.2
+ARG CARGO_DENY_SHA256=9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f
+ARG WASM_BINDGEN_VERSION=0.2.129
+ARG WASM_BINDGEN_SHA256=82d12bb940e2d4e72e0d5605387fc1b8ca179044e012b620f0ce4e7440e8320e
+ARG CARGO_SWEEP_VERSION=0.8.0
 RUN cd /tmp \
     && gh="https://github.com" \
     && curl -fsSLO "$gh/casey/just/releases/download/${JUST_VERSION}/just-${JUST_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
-    && curl -fsSL "$gh/casey/just/releases/download/${JUST_VERSION}/SHA256SUMS" | grep " just-${JUST_VERSION}-x86_64-unknown-linux-musl.tar.gz\$" | sha256sum -c - \
+    && echo "${JUST_SHA256}  just-${JUST_VERSION}-x86_64-unknown-linux-musl.tar.gz" | sha256sum -c - \
     && tar -xzf "just-${JUST_VERSION}-x86_64-unknown-linux-musl.tar.gz" just && install -m 0755 just /usr/local/bin/just \
     && deny="cargo-deny-${CARGO_DENY_VERSION}-x86_64-unknown-linux-musl" \
     && curl -fsSLO "$gh/EmbarkStudios/cargo-deny/releases/download/${CARGO_DENY_VERSION}/${deny}.tar.gz" \
-    && echo "$(curl -fsSL "$gh/EmbarkStudios/cargo-deny/releases/download/${CARGO_DENY_VERSION}/${deny}.tar.gz.sha256" | cut -d' ' -f1)  ${deny}.tar.gz" | sha256sum -c - \
+    && echo "${CARGO_DENY_SHA256}  ${deny}.tar.gz" | sha256sum -c - \
     && tar -xzf "${deny}.tar.gz" && install -m 0755 "${deny}/cargo-deny" /usr/local/bin/cargo-deny \
     && wb="wasm-bindgen-${WASM_BINDGEN_VERSION}-x86_64-unknown-linux-musl" \
     && curl -fsSLO "$gh/wasm-bindgen/wasm-bindgen/releases/download/${WASM_BINDGEN_VERSION}/${wb}.tar.gz" \
-    && echo "$(curl -fsSL "$gh/wasm-bindgen/wasm-bindgen/releases/download/${WASM_BINDGEN_VERSION}/${wb}.tar.gz.sha256sum" | cut -d' ' -f1)  ${wb}.tar.gz" | sha256sum -c - \
+    && echo "${WASM_BINDGEN_SHA256}  ${wb}.tar.gz" | sha256sum -c - \
     && tar -xzf "${wb}.tar.gz" && install -m 0755 "${wb}/wasm-bindgen" /usr/local/bin/wasm-bindgen \
     && cargo install --locked --root /usr/local "cargo-sweep@${CARGO_SWEEP_VERSION}" \
     && rm -rf /tmp/* "$CARGO_HOME/registry" "$CARGO_HOME/git" \
     && just --version && cargo deny --version && wasm-bindgen --version && cargo sweep --version
 
-# Lint and scan tools of the workflows.
+# Lint and scan tools of the workflows (the same pins as gitleaks.yml and checks.yml).
+ARG GITLEAKS_VERSION=8.30.1
+ARG GITLEAKS_SHA256=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+ARG ACTIONLINT_VERSION=1.7.12
+ARG ACTIONLINT_SHA256=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
 RUN cd /tmp \
     && gh="https://github.com" \
     && gl="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
     && curl -fsSLO "$gh/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${gl}" \
-    && curl -fsSL "$gh/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_checksums.txt" | grep " ${gl}\$" | sha256sum -c - \
+    && echo "${GITLEAKS_SHA256}  ${gl}" | sha256sum -c - \
     && tar -xzf "$gl" gitleaks && install -m 0755 gitleaks /usr/local/bin/gitleaks \
     && al="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
     && curl -fsSLO "$gh/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${al}" \
-    && curl -fsSL "$gh/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_checksums.txt" | grep " ${al}\$" | sha256sum -c - \
+    && echo "${ACTIONLINT_SHA256}  ${al}" | sha256sum -c - \
     && tar -xzf "$al" actionlint && install -m 0755 actionlint /usr/local/bin/actionlint \
     && rm -rf /tmp/* \
     && gitleaks version && actionlint --version
 
-# Static ffmpeg with libwebp for the media pipeline tests (TAVRN_MEDIA_FFMPEG=auto finds it in PATH).
+# Static ffmpeg with libwebp for the media pipeline tests (TAVRN_MEDIA_FFMPEG=auto finds it in PATH): BtbN's dated GPL
+# build of the FFmpeg release the node image builds, the same file as tavrn-node's ci.yml and `just ffmpeg-install`
+# (tooling for the tests only, never redistributed with tavrn).
+ARG FFMPEG_RELEASE=autobuild-2026-09-30-13-08
+ARG FFMPEG_ASSET=ffmpeg-n8.1.3-9-g29e619e767-linux64-gpl-8.1.tar.xz
+ARG FFMPEG_SHA256=97ce978979194b5cf7e06a5e68020dbdaa7a4f3294c5452b6a1bc347100dbb79
 RUN cd /tmp \
-    && base="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest" \
-    && curl -fsSLO "$base/${FFMPEG_ASSET}" \
-    && curl -fsSL "$base/checksums.sha256" | grep " ${FFMPEG_ASSET}\$" | sha256sum -c - \
+    && curl -fsSLO "https://github.com/BtbN/FFmpeg-Builds/releases/download/${FFMPEG_RELEASE}/${FFMPEG_ASSET}" \
+    && echo "${FFMPEG_SHA256}  ${FFMPEG_ASSET}" | sha256sum -c - \
     && tar -xJf "${FFMPEG_ASSET}" --strip-components=2 --wildcards '*/bin/ffmpeg' \
     && install -m 0755 ffmpeg /usr/local/bin/ffmpeg && rm -rf /tmp/* \
     && ffmpeg -hide_banner -encoders | grep -c libwebp_anim
@@ -164,11 +173,14 @@ RUN install -d -m 0755 /etc/apt/keyrings \
 # Windows target and the Tauri tools: cargo-xwin (release binary, checksum verified) and tauri-driver (WebDriver
 # bridge to WebKitWebDriver). The Microsoft CRT and Windows SDK that cargo-xwin needs are not part of the image:
 # their license forbids publishing them, so the entrypoint downloads them into the runners' cache (README).
+ARG CARGO_XWIN_VERSION=0.23.1
+ARG CARGO_XWIN_SHA256=c492c6dfb7e5ac0eee586b796e0fc950ba13077e7f0bbb046f445d71790d5360
+ARG TAURI_DRIVER_VERSION=2.1.0
 RUN cd /tmp \
     && rustup target add x86_64-pc-windows-msvc \
     && xw="cargo-xwin-v${CARGO_XWIN_VERSION}.x86_64-unknown-linux-musl.tar.gz" \
     && curl -fsSLO "https://github.com/rust-cross/cargo-xwin/releases/download/v${CARGO_XWIN_VERSION}/${xw}" \
-    && echo "$(curl -fsSL "https://github.com/rust-cross/cargo-xwin/releases/download/v${CARGO_XWIN_VERSION}/${xw}.sha256" | cut -d' ' -f1)  ${xw}" | sha256sum -c - \
+    && echo "${CARGO_XWIN_SHA256}  ${xw}" | sha256sum -c - \
     && tar -xzf "$xw" cargo-xwin && install -m 0755 cargo-xwin /usr/local/bin/cargo-xwin \
     && cargo install --locked --root /usr/local "tauri-driver@${TAURI_DRIVER_VERSION}" \
     && rm -rf /tmp/* "$CARGO_HOME/registry" "$CARGO_HOME/git" \
