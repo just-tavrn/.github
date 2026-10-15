@@ -14,7 +14,8 @@ decentralized, end-to-end encrypted community chat. The organization's landing p
 | [TRADEMARK.md](TRADEMARK.md) | The trademark policy for the name and logo |
 | [.github/ISSUE_TEMPLATE/](.github/ISSUE_TEMPLATE), [.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md) | Default issue forms and pull-request template |
 | [.github/workflows/](.github/workflows) | Reusable workflows called by the code repositories (below) |
-| [scripts/github-labels.sh](scripts/github-labels.sh) | Creates the common label set in a repository |
+| [scripts/github-labels.sh](scripts/github-labels.sh) | Creates the common label set (plus `scripts/labels.txt`) in a repository |
+| [scripts/check-spdx.sh](scripts/check-spdx.sh), [scripts/publish-check.sh](scripts/publish-check.sh), [scripts/check-js-licenses.mjs](scripts/check-js-licenses.mjs) | The shared scripts: the source of the copies in every code repository ([docs/GITHUB.md](docs/GITHUB.md) "Shared scripts"); `scripts/sync-shared.sh` updates the copies, `scripts/check-shared.sh` compares them, `scripts/test/` holds their tests |
 | [scripts/github-rulesets.sh](scripts/github-rulesets.sh) | Creates the `main` and release-tag rulesets of a repository (docs/GITHUB.md, step 8) |
 | [docs/GITHUB.md](docs/GITHUB.md) | Organization and repository settings the owner sets by hand |
 | [runner/](runner/README.md) | Self-hosted runners: the Docker Compose stack, the runner image and what the machine running them must provide |
@@ -28,16 +29,19 @@ file starts with a commented caller example and documents its inputs.
 | Workflow | What it does |
 |---|---|
 | [cla.yml](.github/workflows/cla.yml) | CLA check with `contributor-assistant/github-action`; signatures in the private `just-tavrn/cla-signatures`, token `CLA_PAT` |
-| [rust-ci.yml](.github/workflows/rust-ci.yml) | rustfmt, clippy, tests (optional PostgreSQL service, extra targets and clippy runs), cargo-deny |
+| [rust-ci.yml](.github/workflows/rust-ci.yml) | cargo-deny (bans, licenses, sources), rustfmt, clippy, tests (optional PostgreSQL service and a second SQLite run, extra targets and clippy runs) |
 | [js-ci.yml](.github/workflows/js-ci.yml) | pnpm install with the frozen lockfile, SPDX and license checks, typecheck, tests, optional build |
 | [gitleaks.yml](.github/workflows/gitleaks.yml) | Secret scan of the full history with the gitleaks CLI |
 | [docker-publish.yml](.github/workflows/docker-publish.yml) | Container build with provenance and SBOM, for one or several platforms (one manifest list; QEMU registered for multi-platform builds); pushes to `ghcr.io/just-tavrn/<image>` on main and `v*` tags when asked |
 | [e2e.yml](.github/workflows/e2e.yml) | Playwright run on the self-hosted runners `tavrn-e2e`, against a node image, artifact or binary |
+| [route.yml](.github/workflows/route.yml) | The self-hosted trust rule in one place: whether a run may use the runner stack, and the `runs-on` of a job |
+| [rust-advisories.yml](.github/workflows/rust-advisories.yml) | RustSec advisories (`cargo-deny check advisories`) on a schedule; opens an issue when one appears |
+| [shared-scripts.yml](.github/workflows/shared-scripts.yml) | Checks that a repository's copies of the shared scripts match the source here |
 | [runner-image.yml](.github/workflows/runner-image.yml) | Builds and publishes the runner image `ghcr.io/just-tavrn/tavrn-runner` (not reusable) |
 
 `rust-ci.yml`, `js-ci.yml` and `docker-publish.yml` take an input `runner`: `ubuntu-latest` (default) or
 `tavrn-heavy` for the self-hosted runners ([runner/README.md](runner/README.md)); pull requests from forks
-and from Dependabot always fall back to GitHub-hosted runners. Every action is pinned by commit SHA.
+and from Dependabot always fall back to GitHub-hosted runners (the rule lives in `route.yml`). Every action is pinned by commit SHA.
 
 All jobs run only when the repository variable `CI_ENABLED` is `true` (the callers check it as well), so
 nothing runs on GitHub until the owner switches it on per repository (see [docs/GITHUB.md](docs/GITHUB.md)).
@@ -48,7 +52,9 @@ and the git dependencies between the repositories.
 
 ```bash
 scripts/check-spdx.sh      # SPDX headers of workflows and scripts
-shellcheck scripts/*.sh runner/*.sh
+scripts/publish-check.sh   # publication hygiene (needs .publish-check.private or PUBLISH_CHECK_PRIVATE)
+shellcheck scripts/*.sh scripts/test/*.sh runner/*.sh
+node --test scripts/test/*.test.mjs && for t in scripts/test/*.test.sh; do bash "$t"; done   # the shared scripts' tests
 actionlint                 # workflow lint (https://github.com/rhysd/actionlint)
 ```
 

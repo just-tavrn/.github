@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Checks of this repository: workflow lint (actionlint), shell lint of the scripts, secret scan.
+# Checks of this repository: workflow lint (actionlint), shell lint of the scripts, the tests of the shared scripts,
+# the publication check, secret scan.
 name: Checks
 
 on:
@@ -24,7 +25,11 @@ jobs:
       - name: SPDX headers
         run: scripts/check-spdx.sh
       - name: shellcheck
-        run: shellcheck scripts/*.sh runner/*.sh
+        run: shellcheck scripts/*.sh scripts/test/*.sh runner/*.sh
+      - name: Tests of the shared scripts
+        run: |
+          node --test scripts/test/*.test.mjs
+          for t in scripts/test/*.test.sh; do bash "$t"; done
       - name: actionlint
         env:
           ACTIONLINT_VERSION: "1.7.12"

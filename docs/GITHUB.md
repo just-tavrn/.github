@@ -106,6 +106,19 @@ repository secret is readable by every workflow of every branch). Such a job run
 downloads what an earlier job built and only signs or uploads it. Only organization owners can create `v*`
 tags (the tag ruleset, step 8).
 
+### Shared scripts
+
+`scripts/check-spdx.sh`, `scripts/publish-check.sh`, `scripts/github-labels.sh` and `scripts/check-js-licenses.mjs`
+of this repository are the source of the copies every code repository carries (copies, so `just check` works offline
+and no CI job fetches code at run time). A copy is identical to the source apart from its SPDX line; what differs per
+repository lives in a configuration file next to it: `scripts/spdx-map.sh` (the license map, in sync with the
+repository's LICENSE.md), `scripts/publish-check-extra.sh` (optional), `scripts/labels.txt` (the repository's own
+labels) and `scripts/js-licenses.config.mjs` (packages, extra licenses, verified packages, exceptions). The job
+"Shared scripts in sync" of each repository (the reusable `shared-scripts.yml`) compares the copies with `main` here
+and fails on a difference. To change one: change the source here (with its test in `scripts/test/`), merge, then run
+`scripts/sync-shared.sh <checkout> ...` and open the sync pull requests; until they are merged that job fails in the
+repositories not yet synced.
+
 ## 3. Tokens and secrets
 
 Both tokens are **fine-grained personal access tokens** of the owner account (avatar → **Settings** →
@@ -209,8 +222,8 @@ In short:
    -F has_discussions=false`), so there is only one place.
 2. Once the repositories are public: organization **Settings** → **Discussions** → **Enable discussions for
    this organization**, source repository **tavrn**.
-3. Labels: `scripts/github-labels.sh just-tavrn/<repo>` creates the common label set (applied to this
-   repository; the code repositories have their own copy). Optionally mirror the list under organization
+3. Labels: `scripts/github-labels.sh just-tavrn/<repo>` creates the common label set and the lines of
+   `scripts/labels.txt` (each code repository runs its own copy with its own list, "Shared scripts" above). Optionally mirror the list under organization
    **Settings** → **Repository defaults** → **Repository labels** so new repositories start with it.
 4. The organization profile (`profile/README.md`) and the default community health files (code of conduct,
    contributing, security, support, issue templates, funding) only take effect while this repository is
