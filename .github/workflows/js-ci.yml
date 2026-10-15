@@ -11,6 +11,8 @@
 #       with:
 #         license-check: scripts/check-js-licenses.mjs
 #         build: pnpm --filter @tavrn/web build
+#         artifact-name: web-dist
+#         artifact-path: web/dist
 #         runner: tavrn-heavy
 #       secrets:
 #         READ_TOKEN: ${{ secrets.TAVRN_READ_PAT }}
@@ -58,6 +60,16 @@ on:
         default: pnpm -r --if-present test
       build:
         description: Build command run after the tests; empty to skip.
+        type: string
+        default: ""
+      artifact-name:
+        description: >-
+          Upload artifact-path after the build as a workflow artifact of this name (one day), so later jobs of the
+          caller's run use the build instead of repeating it; empty to skip.
+        type: string
+        default: ""
+      artifact-path:
+        description: Path of the build output to upload, relative to the working directory.
         type: string
         default: ""
       pre-test:
@@ -193,3 +205,11 @@ jobs:
         env:
           CMD: ${{ inputs.build }}
         run: bash -euo pipefail -c "$CMD"
+      - name: Upload the build
+        if: ${{ inputs.artifact-name != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ inputs.working-directory }}/${{ inputs.artifact-path }}
+          retention-days: 1
+          if-no-files-found: error
