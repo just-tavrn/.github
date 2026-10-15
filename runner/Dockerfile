@@ -19,7 +19,7 @@
 # Valkey for the cluster tests (TAVRN_TEST_CACHE_URL), one private instance per runner container.
 FROM valkey/valkey:8.1.10@sha256:640c5e62cea04b6d6f2084232651d0cc70362d31f4f805e7be94dbed6855e8f2 AS valkey
 # livekit-server for the voice tests, the same release the node image ships.
-FROM livekit/livekit-server:v1.13.8@sha256:ad961c9b4b064298cc08d618d772671f7c783e036001388079fa813929cc357e AS livekit
+FROM livekit/livekit-server:v1.13.9@sha256:d0c04791bf63ca8dcea123571827d56ba9504bd57c8d5de60ee03b5408cc3154 AS livekit
 
 # Base image (Dependabot keeps tag and digest current; the runner version is the tag).
 FROM myoung34/github-runner:2.338.0-ubuntu-noble@sha256:2112bde2ee92b7480babfbe3043d0461e322b97ca01e6ac94698895f3dc1f528
