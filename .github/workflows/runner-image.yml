@@ -2,8 +2,9 @@
 #
 # Builds the self-hosted runner image (runner/Dockerfile) on a GitHub-hosted runner and pushes it to
 # ghcr.io/just-tavrn/tavrn-runner (edge on main, plus a sha-<commit> tag). Weekly as well, so a new stable Rust
-# release and fresh distribution packages arrive without a commit. The runner VM uses the image pinned by digest
-# (RUNNER_IMAGE in the stack's environment, runner/README.md, "Updating").
+# release and fresh distribution packages arrive without a commit: the scheduled run builds without the layer cache
+# (its RUN lines never change, so the cache would serve the old toolchain and packages again). The runner VM uses the
+# image pinned by digest (RUNNER_IMAGE in the stack's environment, runner/README.md, "Updating").
 name: Runner image
 
 on:
@@ -31,3 +32,5 @@ jobs:
       image-name: tavrn-runner
       push: true
       submodules: ${{ 'false' }}
+      no-cache: ${{ github.event_name == 'schedule' }}
+      timeout-minutes: 90

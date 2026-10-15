@@ -77,6 +77,10 @@ on:
         type: boolean
         required: false
         default: false
+      timeout-minutes:
+        description: Time limit of the job (GitHub's default is six hours, on a pool of two heavy runners).
+        type: number
+        default: 30
     secrets:
       READ_TOKEN:
         description: Optional token with read access to the private just-tavrn repositories (submodules, git dependencies).
@@ -86,13 +90,21 @@ permissions:
   contents: read
 
 jobs:
+  # Self-hosted runners execute the job's code in the runner VM: forks, Dependabot and dependabot/* branches (even when
+  # a person dispatches the run) never get them; route.yml holds that rule and falls back to ubuntu-latest for those
+  # (runner/README.md, "Security").
+  route:
+    if: ${{ vars.CI_ENABLED == 'true' && !inputs.skip }}
+    uses: ./.github/workflows/route.yml
+    with:
+      runner: ${{ inputs.runner }}
+
   js:
     name: JavaScript (install, typecheck, test)
-    # Self-hosted runners execute the job's code in the runner VM: forks, Dependabot and dependabot/* branches (even
-    # when a person dispatches the run) never get them (the expression falls back to ubuntu-latest for those;
-    # runner/README.md, "Security").
+    needs: route
     if: ${{ vars.CI_ENABLED == 'true' && !inputs.skip }}
-    runs-on: ${{ fromJSON(startsWith(inputs.runner, 'tavrn-') && github.event_name != 'pull_request_target' && github.actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/heads/dependabot/') && !startsWith(github.head_ref, 'dependabot/') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && format('["self-hosted","linux","x64","{0}"]', inputs.runner) || (startsWith(inputs.runner, 'tavrn-') && '"ubuntu-latest"' || toJSON(inputs.runner))) }}
+    runs-on: ${{ fromJSON(needs.route.outputs.runs-on) }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     defaults:
       run:
         working-directory: ${{ inputs.working-directory }}

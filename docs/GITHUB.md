@@ -69,6 +69,18 @@ as a passed required check. The code repositories compute it in a `changes` job 
 deploy examples count as docs) so a documentation change runs only the cheap hygiene jobs; the website picks the
 documentation up through its source submodules (Dependabot bumps them daily).
 
+### Self-hosted routing, time limits, advisories
+
+[`route.yml`](../.github/workflows/route.yml) is the one place of the trust rule that keeps forks, Dependabot,
+`dependabot/*` branches and `pull_request_target` off the self-hosted runners; `rust-ci.yml`, `js-ci.yml`,
+`docker-publish.yml` and `e2e.yml` take their `runs-on` from it, and so do the jobs of the code repositories that run
+on `tavrn-heavy` outside the reusable workflows (tavrn-web's `desktop.yml`, tavrn-js' bot job). Each reusable workflow
+has a `timeout-minutes` input (Rust 45, JavaScript 30, image 60, end-to-end 90, gitleaks 10 minutes): a hung test never
+holds one of the two heavy runners for GitHub's default of six hours. `rust-ci.yml` checks cargo-deny's bans, licenses
+and sources before the build; the RustSec advisories run in `rust-advisories.yml`, called by a scheduled workflow of
+each Rust repository, which opens an issue "RustSec advisories" when one appears (labels `security` and
+`dependencies`).
+
 ### Reusable workflows in release paths
 
 A workflow that runs for a release tag and calls a reusable workflow of this repository (tavrn-node's

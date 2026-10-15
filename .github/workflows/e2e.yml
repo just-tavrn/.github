@@ -79,6 +79,10 @@ on:
         description: Checkout submodules (false, true or recursive).
         type: string
         default: recursive
+      timeout-minutes:
+        description: Time limit of the job.
+        type: number
+        default: 90
     secrets:
       READ_TOKEN:
         description: Optional token with read access to the private just-tavrn repositories (submodules, git dependencies).
@@ -89,13 +93,20 @@ permissions:
   packages: read
 
 jobs:
+  # Never for forks, Dependabot, dependabot/* branches (even dispatched by a person) or pull_request_target: the runner
+  # executes the checked-out code. route.yml holds that rule; there is no GitHub-hosted fall-back, the job is skipped.
+  route:
+    if: ${{ vars.CI_ENABLED == 'true' }}
+    uses: ./.github/workflows/route.yml
+    with:
+      runner: tavrn-e2e
+
   e2e:
     name: End-to-end (Playwright)
-    # Never for forks, Dependabot, dependabot/* branches (even dispatched by a person) or pull_request_target: the
-    # runner executes the checked-out code.
-    if: ${{ vars.CI_ENABLED == 'true' && github.event_name != 'pull_request_target' && github.actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/heads/dependabot/') && !startsWith(github.head_ref, 'dependabot/') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) }}
+    needs: route
+    if: ${{ vars.CI_ENABLED == 'true' && needs.route.outputs.trusted == 'true' }}
     runs-on: [self-hosted, linux, x64, tavrn-e2e]
-    timeout-minutes: 90
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     concurrency:
       group: tavrn-e2e-${{ github.repository }}-${{ github.ref }}
       cancel-in-progress: true
