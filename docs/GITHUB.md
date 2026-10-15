@@ -129,6 +129,28 @@ callers pass this token as `READ_TOKEN` to the reusable workflows.
 - Store it as a **repository secret** `TAVRN_READ_PAT` in `tavrn-crypto`, `tavrn-js`, `tavrn-node` and
   `tavrn-web`. Delete the token and the secrets once the repositories are public.
 
+### `PUBLISH_CHECK_PRIVATE` (publication hygiene)
+
+`scripts/publish-check.sh` (job "Publication hygiene" in `tavrn`, `tavrn-website`, `tavrn-protocol`,
+`tavrn-crypto`, `tavrn-js`, `tavrn-node` and `tavrn-web`; this repository runs no publication check) refuses
+private domains, hosts and addresses. The list cannot live in the public script, so the CI reads it from the
+secret `PUBLISH_CHECK_PRIVATE`: comma-separated literal strings, the same as the owner's local, untracked
+`.publish-check.private` (one string per line). Pull requests opened by Dependabot run with **Dependabot
+secrets** only, never with Actions secrets, so the secret must exist as an **Actions secret and a Dependabot
+secret** in every one of those repositories:
+
+```sh
+grep -v '^#' .publish-check.private | paste -sd, - | gh secret set PUBLISH_CHECK_PRIVATE -R just-tavrn/<repo>
+grep -v '^#' .publish-check.private | paste -sd, - | gh secret set PUBLISH_CHECK_PRIVATE -R just-tavrn/<repo> --app dependabot
+```
+
+Fallback: without a configured list the script fails, except when `PUBLISH_CHECK_ALLOW_UNCONFIGURED=1`. The
+workflows set that variable for Dependabot's pull requests only (`github.event_name == 'pull_request'` and
+`github.actor == 'dependabot[bot]'`): the private-pattern step is then skipped with a warning, while the checks
+for private paths, the secret patterns and gitleaks still run and still fail. The push to `main` after the merge
+runs the full check with the Actions secret, so a missing Dependabot secret delays a finding, it never hides it
+on `main`.
+
 ### Container images
 
 `docker-publish.yml` pushes to `ghcr.io/just-tavrn/<image>` with the job token. After the first push open the
