@@ -72,6 +72,17 @@ on:
         description: Checkout submodules (false, true or recursive).
         type: string
         default: recursive
+      no-cache:
+        description: >-
+          Build every layer anew (the layers are still written to the cache afterwards): for a scheduled rebuild whose
+          RUN lines never change but must pick up new upstream releases (apt packages, the stable Rust toolchain).
+          Tag builds never use a cache anyway.
+        type: boolean
+        default: false
+      timeout-minutes:
+        description: Time limit of the job (GitHub's default is six hours; the multi-platform node image takes about 20 minutes without its dependency layer).
+        type: number
+        default: 60
     secrets:
       READ_TOKEN:
         description: Optional token with read access to the private just-tavrn repositories (submodules; passed to the build as the secret "read_token").
@@ -89,13 +100,21 @@ permissions:
   packages: write
 
 jobs:
+  # Self-hosted runners execute the job's code in the runner VM: forks, Dependabot and dependabot/* branches (even when
+  # a person dispatches the run) never get them; route.yml holds that rule and falls back to ubuntu-latest for those
+  # (runner/README.md, "Security").
+  route:
+    if: ${{ vars.CI_ENABLED == 'true' }}
+    uses: ./.github/workflows/route.yml
+    with:
+      runner: ${{ inputs.runner }}
+
   image:
     name: Container image (${{ inputs.image-name }})
-    # Self-hosted runners execute the job's code in the runner VM: forks, Dependabot and dependabot/* branches (even
-    # when a person dispatches the run) never get them (the expression falls back to ubuntu-latest for those;
-    # runner/README.md, "Security").
+    needs: route
     if: ${{ vars.CI_ENABLED == 'true' }}
-    runs-on: ${{ fromJSON(startsWith(inputs.runner, 'tavrn-') && github.event_name != 'pull_request_target' && github.actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/heads/dependabot/') && !startsWith(github.head_ref, 'dependabot/') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && format('["self-hosted","linux","x64","{0}"]', inputs.runner) || (startsWith(inputs.runner, 'tavrn-') && '"ubuntu-latest"' || toJSON(inputs.runner))) }}
+    runs-on: ${{ fromJSON(needs.route.outputs.runs-on) }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     outputs:
       digest: ${{ steps.build.outputs.digest }}
       tags: ${{ steps.meta.outputs.tags }}
@@ -168,7 +187,7 @@ jobs:
           # Build cache (runner/README.md "Security"): only GitHub-hosted runs share layers through the Actions cache,
           # in a scope of their own (<image>-hosted), so a self-hosted build never seeds layers that a GitHub-hosted
           # build imports; self-hosted runs keep the local cache of the stack's DinD only. Tag builds (releases)
-          # start from nothing and write no cache.
-          no-cache: ${{ startsWith(github.ref, 'refs/tags/') }}
+          # start from nothing and write no cache; no-cache runs (scheduled rebuilds) start from nothing and refresh it.
+          no-cache: ${{ inputs.no-cache || startsWith(github.ref, 'refs/tags/') }}
           cache-from: ${{ runner.environment == 'github-hosted' && !startsWith(github.ref, 'refs/tags/') && format('type=gha,scope={0}-hosted', inputs.image-name) || '' }}
           cache-to: ${{ runner.environment == 'github-hosted' && !startsWith(github.ref, 'refs/tags/') && format('type=gha,mode=max,scope={0}-hosted', inputs.image-name) || '' }}

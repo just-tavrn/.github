@@ -69,6 +69,18 @@ as a passed required check. The code repositories compute it in a `changes` job 
 deploy examples count as docs) so a documentation change runs only the cheap hygiene jobs; the website picks the
 documentation up through its source submodules (Dependabot bumps them daily).
 
+### Self-hosted routing, time limits, advisories
+
+[`route.yml`](../.github/workflows/route.yml) is the one place of the trust rule that keeps forks, Dependabot,
+`dependabot/*` branches and `pull_request_target` off the self-hosted runners; `rust-ci.yml`, `js-ci.yml`,
+`docker-publish.yml` and `e2e.yml` take their `runs-on` from it, and so do the jobs of the code repositories that run
+on `tavrn-heavy` outside the reusable workflows (tavrn-web's `desktop.yml`, tavrn-js' bot job). Each reusable workflow
+has a `timeout-minutes` input (Rust 45, JavaScript 30, image 60, end-to-end 90, gitleaks 10 minutes): a hung test never
+holds one of the two heavy runners for GitHub's default of six hours. `rust-ci.yml` checks cargo-deny's bans, licenses
+and sources before the build; the RustSec advisories run in `rust-advisories.yml`, called by a scheduled workflow of
+each Rust repository, which opens an issue "RustSec advisories" when one appears (labels `security` and
+`dependencies`).
+
 ### Reusable workflows in release paths
 
 A workflow that runs for a release tag and calls a reusable workflow of this repository (tavrn-node's
@@ -93,6 +105,19 @@ reviewer (an organization owner), and those secrets as environment secrets, neve
 repository secret is readable by every workflow of every branch). Such a job runs no dependency code: it
 downloads what an earlier job built and only signs or uploads it. Only organization owners can create `v*`
 tags (the tag ruleset, step 8).
+
+### Shared scripts
+
+`scripts/check-spdx.sh`, `scripts/publish-check.sh`, `scripts/github-labels.sh` and `scripts/check-js-licenses.mjs`
+of this repository are the source of the copies every code repository carries (copies, so `just check` works offline
+and no CI job fetches code at run time). A copy is identical to the source apart from its SPDX line; what differs per
+repository lives in a configuration file next to it: `scripts/spdx-map.sh` (the license map, in sync with the
+repository's LICENSE.md), `scripts/publish-check-extra.sh` (optional), `scripts/labels.txt` (the repository's own
+labels) and `scripts/js-licenses.config.mjs` (packages, extra licenses, verified packages, exceptions). The job
+"Shared scripts in sync" of each repository (the reusable `shared-scripts.yml`) compares the copies with `main` here
+and fails on a difference. To change one: change the source here (with its test in `scripts/test/`), merge, then run
+`scripts/sync-shared.sh <checkout> ...` and open the sync pull requests; until they are merged that job fails in the
+repositories not yet synced.
 
 ## 3. Tokens and secrets
 
@@ -131,8 +156,8 @@ callers pass this token as `READ_TOKEN` to the reusable workflows.
 
 ### `PUBLISH_CHECK_PRIVATE` (publication hygiene)
 
-`scripts/publish-check.sh` (job "Publication hygiene" in `tavrn`, `tavrn-website`, `tavrn-protocol`,
-`tavrn-crypto`, `tavrn-js`, `tavrn-node` and `tavrn-web`; this repository runs no publication check) refuses
+`scripts/publish-check.sh` (job "Publication hygiene" in this repository, `tavrn`, `tavrn-website`, `tavrn-protocol`,
+`tavrn-crypto`, `tavrn-js`, `tavrn-node` and `tavrn-web`) refuses
 private domains, hosts and addresses. The list cannot live in the public script, so the CI reads it from the
 secret `PUBLISH_CHECK_PRIVATE`: comma-separated literal strings, the same as the owner's local, untracked
 `.publish-check.private` (one string per line). Pull requests opened by Dependabot run with **Dependabot
@@ -197,8 +222,8 @@ In short:
    -F has_discussions=false`), so there is only one place.
 2. Once the repositories are public: organization **Settings** → **Discussions** → **Enable discussions for
    this organization**, source repository **tavrn**.
-3. Labels: `scripts/github-labels.sh just-tavrn/<repo>` creates the common label set (applied to this
-   repository; the code repositories have their own copy). Optionally mirror the list under organization
+3. Labels: `scripts/github-labels.sh just-tavrn/<repo>` creates the common label set and the lines of
+   `scripts/labels.txt` (each code repository runs its own copy with its own list, "Shared scripts" above). Optionally mirror the list under organization
    **Settings** → **Repository defaults** → **Repository labels** so new repositories start with it.
 4. The organization profile (`profile/README.md`) and the default community health files (code of conduct,
    contributing, security, support, issue templates, funding) only take effect while this repository is

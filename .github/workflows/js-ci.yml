@@ -11,6 +11,8 @@
 #       with:
 #         license-check: scripts/check-js-licenses.mjs
 #         build: pnpm --filter @tavrn/web build
+#         artifact-name: web-dist
+#         artifact-path: web/dist
 #         runner: tavrn-heavy
 #       secrets:
 #         READ_TOKEN: ${{ secrets.TAVRN_READ_PAT }}
@@ -60,6 +62,16 @@ on:
         description: Build command run after the tests; empty to skip.
         type: string
         default: ""
+      artifact-name:
+        description: >-
+          Upload artifact-path after the build as a workflow artifact of this name (one day), so later jobs of the
+          caller's run use the build instead of repeating it; empty to skip.
+        type: string
+        default: ""
+      artifact-path:
+        description: Path of the build output to upload, relative to the working directory.
+        type: string
+        default: ""
       pre-test:
         description: Shell commands run after the install and before the checks (for example generating code).
         type: string
@@ -77,6 +89,10 @@ on:
         type: boolean
         required: false
         default: false
+      timeout-minutes:
+        description: Time limit of the job (GitHub's default is six hours, on a pool of two heavy runners).
+        type: number
+        default: 30
     secrets:
       READ_TOKEN:
         description: Optional token with read access to the private just-tavrn repositories (submodules, git dependencies).
@@ -86,13 +102,21 @@ permissions:
   contents: read
 
 jobs:
+  # Self-hosted runners execute the job's code in the runner VM: forks, Dependabot and dependabot/* branches (even when
+  # a person dispatches the run) never get them; route.yml holds that rule and falls back to ubuntu-latest for those
+  # (runner/README.md, "Security").
+  route:
+    if: ${{ vars.CI_ENABLED == 'true' && !inputs.skip }}
+    uses: ./.github/workflows/route.yml
+    with:
+      runner: ${{ inputs.runner }}
+
   js:
     name: JavaScript (install, typecheck, test)
-    # Self-hosted runners execute the job's code in the runner VM: forks, Dependabot and dependabot/* branches (even
-    # when a person dispatches the run) never get them (the expression falls back to ubuntu-latest for those;
-    # runner/README.md, "Security").
+    needs: route
     if: ${{ vars.CI_ENABLED == 'true' && !inputs.skip }}
-    runs-on: ${{ fromJSON(startsWith(inputs.runner, 'tavrn-') && github.event_name != 'pull_request_target' && github.actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/heads/dependabot/') && !startsWith(github.head_ref, 'dependabot/') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && format('["self-hosted","linux","x64","{0}"]', inputs.runner) || (startsWith(inputs.runner, 'tavrn-') && '"ubuntu-latest"' || toJSON(inputs.runner))) }}
+    runs-on: ${{ fromJSON(needs.route.outputs.runs-on) }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     defaults:
       run:
         working-directory: ${{ inputs.working-directory }}
@@ -181,3 +205,11 @@ jobs:
         env:
           CMD: ${{ inputs.build }}
         run: bash -euo pipefail -c "$CMD"
+      - name: Upload the build
+        if: ${{ inputs.artifact-name != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ inputs.working-directory }}/${{ inputs.artifact-path }}
+          retention-days: 1
+          if-no-files-found: error

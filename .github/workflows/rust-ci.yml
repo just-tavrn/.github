@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Reusable Rust CI: rustfmt, clippy (warnings are errors), tests and cargo-deny. Used by tavrn-crypto and
-# tavrn-node.
+# Reusable Rust CI: cargo-deny (bans, licenses, sources; first, it takes seconds), rustfmt, clippy (warnings are
+# errors) and the tests. Used by tavrn-crypto and tavrn-node. The RustSec advisories are not checked here: a new
+# advisory against any crate would turn every open pull request red at once, unrelated to its diff; rust-advisories.yml
+# checks them on a schedule and when Cargo.lock changes.
 #
 # Caller:
 #   jobs:
@@ -13,6 +15,7 @@
 #         extra-clippy: |
 #           -p tavrn-crypto --target wasm32-unknown-unknown
 #         postgres: true
+#         test-sqlite: true
 #         runner: tavrn-heavy
 #       secrets:
 #         READ_TOKEN: ${{ secrets.TAVRN_READ_PAT }}
@@ -66,6 +69,13 @@ on:
         description: Start a PostgreSQL 17 service and export TAVRN_TEST_DATABASE_URL for the tests (GitHub-hosted; the self-hosted stack always has one).
         type: boolean
         default: false
+      test-sqlite:
+        description: >-
+          Run the tests a second time with TAVRN_TEST_DATABASE_URL and TAVRN_TEST_CACHE_URL unset (tavrn-node: SQLite,
+          the default database of small nodes and of --dev, like `just test`); the same build, only the test time.
+          The self-hosted stack always sets TAVRN_TEST_DATABASE_URL, so without this the tests run on PostgreSQL only.
+        type: boolean
+        default: false
       pre-test:
         description: Shell commands run before the tests (for example installing livekit-server or ffmpeg).
         type: string
@@ -75,7 +85,7 @@ on:
         type: string
         default: ""
       cargo-deny:
-        description: Run cargo-deny (advisories, bans, licenses, sources) with the repository's deny.toml.
+        description: Run cargo-deny (bans, licenses, sources; the advisories are rust-advisories.yml's) with the repository's deny.toml, before the build.
         type: boolean
         default: true
       cargo-deny-version:
@@ -91,6 +101,10 @@ on:
         type: boolean
         required: false
         default: false
+      timeout-minutes:
+        description: Time limit of the job (a hung test must not hold one of the two heavy runners for GitHub's default of six hours).
+        type: number
+        default: 45
     secrets:
       READ_TOKEN:
         description: Optional token with read access to the private just-tavrn repositories (submodules, git dependencies).
@@ -104,17 +118,25 @@ env:
   CARGO_NET_GIT_FETCH_WITH_CLI: "true"
 
 jobs:
+  # Self-hosted runners execute the job's code in the runner VM: forks, Dependabot and dependabot/* branches (even when
+  # a person dispatches the run) never get them; route.yml holds that rule and falls back to ubuntu-latest for those
+  # (runner/README.md, "Security").
+  route:
+    if: ${{ vars.CI_ENABLED == 'true' && !inputs.skip }}
+    uses: ./.github/workflows/route.yml
+    with:
+      runner: ${{ inputs.runner }}
+
   rust:
     name: Rust (fmt, clippy, test)
-    # Self-hosted runners execute the job's code in the runner VM: forks, Dependabot and dependabot/* branches (even
-    # when a person dispatches the run) never get them (the expression falls back to ubuntu-latest for those;
-    # runner/README.md, "Security").
+    needs: route
     if: ${{ vars.CI_ENABLED == 'true' && !inputs.skip }}
-    runs-on: ${{ fromJSON(startsWith(inputs.runner, 'tavrn-') && github.event_name != 'pull_request_target' && github.actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/heads/dependabot/') && !startsWith(github.head_ref, 'dependabot/') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && format('["self-hosted","linux","x64","{0}"]', inputs.runner) || (startsWith(inputs.runner, 'tavrn-') && '"ubuntu-latest"' || toJSON(inputs.runner))) }}
+    runs-on: ${{ fromJSON(needs.route.outputs.runs-on) }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     services:
       postgres:
         # An empty image skips the service: GitHub-hosted runs only.
-        image: ${{ inputs.postgres && !(startsWith(inputs.runner, 'tavrn-') && github.event_name != 'pull_request_target' && github.actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/heads/dependabot/') && !startsWith(github.head_ref, 'dependabot/') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]'))) && 'postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24' || '' }}
+        image: ${{ inputs.postgres && needs.route.outputs.self-hosted != 'true' && 'postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24' || '' }}
         env:
           POSTGRES_USER: tavrn
           POSTGRES_PASSWORD: tavrn
@@ -165,6 +187,23 @@ jobs:
           for t in ${EXTRA_TARGETS//,/ }; do
             grep -qx "$t" <<< "$installed" || { echo "::error::target $t is not in the runner image (runner/Dockerfile)"; exit 1; }
           done
+      # Bans, licenses and sources first: seconds, and a refused dependency fails before the build. The release binary
+      # instead of the container action: it sees the git credentials of the runner, which the private git
+      # dependencies need.
+      - name: cargo-deny (bans, licenses, sources)
+        if: ${{ inputs.cargo-deny }}
+        env:
+          DENY_VERSION: ${{ inputs.cargo-deny-version }}
+        run: |
+          tmp="$(mktemp -d)"
+          name="cargo-deny-${DENY_VERSION}-x86_64-unknown-linux-musl"
+          base="https://github.com/EmbarkStudios/cargo-deny/releases/download/${DENY_VERSION}"
+          curl -fsSL -o "$tmp/$name.tar.gz" "$base/$name.tar.gz"
+          curl -fsSL -o "$tmp/$name.tar.gz.sha256" "$base/$name.tar.gz.sha256"
+          echo "$(cut -d' ' -f1 < "$tmp/$name.tar.gz.sha256")  $tmp/$name.tar.gz" | sha256sum -c -
+          tar -xzf "$tmp/$name.tar.gz" -C "$tmp"
+          "$tmp/$name/cargo-deny" --version
+          "$tmp/$name/cargo-deny" --log-level error check bans licenses sources
       - name: rustfmt
         run: cargo fmt --all -- --check
       - name: clippy
@@ -210,19 +249,10 @@ jobs:
         run: |
           # shellcheck disable=SC2086 # word splitting of the argument list is intended
           cargo test $TEST_ARGS
-      # The release binary instead of the container action: it sees the git credentials of the runner,
-      # which the private git dependencies need.
-      - name: cargo-deny
-        if: ${{ inputs.cargo-deny }}
+      - name: test (SQLite)
+        if: ${{ inputs.test-sqlite }}
         env:
-          DENY_VERSION: ${{ inputs.cargo-deny-version }}
+          TEST_ARGS: ${{ inputs.test-args }}
         run: |
-          tmp="$(mktemp -d)"
-          name="cargo-deny-${DENY_VERSION}-x86_64-unknown-linux-musl"
-          base="https://github.com/EmbarkStudios/cargo-deny/releases/download/${DENY_VERSION}"
-          curl -fsSL -o "$tmp/$name.tar.gz" "$base/$name.tar.gz"
-          curl -fsSL -o "$tmp/$name.tar.gz.sha256" "$base/$name.tar.gz.sha256"
-          echo "$(cut -d' ' -f1 < "$tmp/$name.tar.gz.sha256")  $tmp/$name.tar.gz" | sha256sum -c -
-          tar -xzf "$tmp/$name.tar.gz" -C "$tmp"
-          "$tmp/$name/cargo-deny" --version
-          "$tmp/$name/cargo-deny" --log-level error check
+          # shellcheck disable=SC2086 # word splitting of the argument list is intended
+          env -u TAVRN_TEST_DATABASE_URL -u TAVRN_TEST_CACHE_URL cargo test $TEST_ARGS

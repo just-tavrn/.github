@@ -1,0 +1,4 @@
+# Labels of this repository on top of the common set of scripts/github-labels.sh (name|colour|description).
+protocol|5319e7|Touches the protocol: API, message format, federation or encryption
+breaking-change|e11d21|Changes existing behaviour, the API, the configuration or a storage format
+ci|ededed|Workflows, the runner stack and build tooling

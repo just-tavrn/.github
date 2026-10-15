@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Checks of this repository: workflow lint (actionlint), shell lint of the scripts, secret scan.
+# Checks of this repository: workflow lint (actionlint), shell lint of the scripts, the tests of the shared scripts,
+# the publication check, secret scan.
 name: Checks
 
 on:
@@ -16,6 +17,7 @@ jobs:
     name: Lint (actionlint, shellcheck, SPDX)
     if: ${{ vars.CI_ENABLED == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -23,7 +25,11 @@ jobs:
       - name: SPDX headers
         run: scripts/check-spdx.sh
       - name: shellcheck
-        run: shellcheck scripts/*.sh runner/*.sh
+        run: shellcheck scripts/*.sh scripts/test/*.sh runner/*.sh
+      - name: Tests of the shared scripts
+        run: |
+          node --test scripts/test/*.test.mjs
+          for t in scripts/test/*.test.sh; do bash "$t"; done
       - name: actionlint
         env:
           ACTIONLINT_VERSION: "1.7.12"
@@ -36,6 +42,23 @@ jobs:
           echo "${ACTIONLINT_SHA256}  $tmp/$file" | sha256sum -c -
           tar -xzf "$tmp/$file" -C "$tmp" actionlint
           "$tmp/actionlint" -color
+
+  publish-check:
+    name: Publication hygiene
+    if: ${{ vars.CI_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: No private files, domains or secrets
+        env:
+          # Comma-separated private domains, hosts and addresses (docs/GITHUB.md "PUBLISH_CHECK_PRIVATE").
+          PUBLISH_CHECK_PRIVATE: ${{ secrets.PUBLISH_CHECK_PRIVATE }}
+          # Dependabot's pull requests see only Dependabot secrets; the push to main runs the full check.
+          PUBLISH_CHECK_ALLOW_UNCONFIGURED: ${{ github.event_name == 'pull_request' && github.actor == 'dependabot[bot]' && '1' || '' }}
+        run: scripts/publish-check.sh
 
   gitleaks:
     if: ${{ vars.CI_ENABLED == 'true' }}

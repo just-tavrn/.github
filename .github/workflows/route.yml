@@ -1,0 +1,92 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Reusable routing decision: may this run use the self-hosted runners of the tavrn runner stack, and where does a job
+# of runner class `runner` go? The one place of the trust rule (runner/README.md, "Security"): self-hosted runners
+# execute the job's code in the runner VM, so forks, Dependabot, dependabot/* branches (even when a person dispatches
+# the run) and pull_request_target events never get them. Every workflow that may run on a self-hosted runner takes
+# its runs-on from here (rust-ci.yml, js-ci.yml, docker-publish.yml, e2e.yml here; tavrn-web's desktop.yml and
+# tavrn-js' bot job through `uses:`).
+#
+# Caller:
+#   jobs:
+#     route:
+#       if: ${{ vars.CI_ENABLED == 'true' }}
+#       uses: just-tavrn/.github/.github/workflows/route.yml@main   # ./.github/workflows/route.yml in this repository
+#       with:
+#         runner: tavrn-heavy
+#     build:
+#       needs: route
+#       runs-on: ${{ fromJSON(needs.route.outputs.runs-on) }}
+#       # or, for a job that must never leave the self-hosted runners: if: needs.route.outputs.trusted == 'true'
+#
+# Outputs:
+#   trusted      'true' when the event may use self-hosted runners at all
+#   self-hosted  'true' when `runner` is a self-hosted class (tavrn-*) and the event is trusted
+#   runs-on      JSON for runs-on: ["self-hosted","linux","x64","<runner>"] when self-hosted, else "ubuntu-latest" for a
+#                self-hosted class (the fall-back) or the given GitHub-hosted label
+name: Route (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: A GitHub-hosted label (ubuntu-latest, the default) or a self-hosted runner class of the tavrn runner stack (tavrn-heavy, tavrn-e2e).
+        type: string
+        default: ubuntu-latest
+    outputs:
+      trusted:
+        description: "'true' when the event may use the self-hosted runners"
+        value: ${{ jobs.route.outputs.trusted }}
+      self-hosted:
+        description: "'true' when the job goes to a self-hosted runner"
+        value: ${{ jobs.route.outputs.self-hosted }}
+      runs-on:
+        description: The runs-on value as JSON (fromJSON it)
+        value: ${{ jobs.route.outputs.runs-on }}
+
+permissions: {}
+
+jobs:
+  route:
+    name: Route
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      trusted: ${{ steps.route.outputs.trusted }}
+      self-hosted: ${{ steps.route.outputs.self-hosted }}
+      runs-on: ${{ steps.route.outputs.runs-on }}
+    steps:
+      - id: route
+        env:
+          RUNNER: ${{ inputs.runner }}
+          # The trust rule. Pushes, manual and scheduled runs and pull requests from branches of the repository itself
+          # are trusted; anything from a fork, from Dependabot or on a dependabot/* branch is not.
+          TRUSTED: >-
+            ${{ github.event_name != 'pull_request_target'
+            && github.actor != 'dependabot[bot]'
+            && !startsWith(github.ref, 'refs/heads/dependabot/')
+            && !startsWith(github.head_ref, 'dependabot/')
+            && (github.event_name != 'pull_request'
+                || (github.event.pull_request.head.repo.full_name == github.repository
+                    && github.event.pull_request.user.login != 'dependabot[bot]')) }}
+        run: |
+          case "$RUNNER" in
+            tavrn-*)
+              if [ "$TRUSTED" = true ]; then
+                self_hosted=true
+                runs_on="[\"self-hosted\",\"linux\",\"x64\",\"$RUNNER\"]"
+              else
+                self_hosted=false
+                runs_on='"ubuntu-latest"'
+              fi ;;
+            *[!A-Za-z0-9._-]* | "")
+              echo "::error::runner '$RUNNER' is not a runner label"; exit 1 ;;
+            *)
+              self_hosted=false
+              runs_on="\"$RUNNER\"" ;;
+          esac
+          {
+            echo "trusted=$TRUSTED"
+            echo "self-hosted=$self_hosted"
+            echo "runs-on=$runs_on"
+          } | tee -a "$GITHUB_OUTPUT"

@@ -96,7 +96,8 @@ memory budget below in mind.
 on GitHub.
 
 **Updating**: the image is pinned by digest. A new image appears on every change of `runner/Dockerfile` (also
-Dependabot's base image bumps) and weekly. Set the new digest in `RUNNER_IMAGE` and run `up -d` again (it
+Dependabot's base image bumps) and weekly; the weekly build runs without the layer cache, so it brings the current
+stable Rust and Ubuntu's package updates (a build after a commit reuses the cached layers before the changed line). Set the new digest in `RUNNER_IMAGE` and run `up -d` again (it
 pulls and recreates the containers). The runners have automatic updates disabled; GitHub stops sending jobs to a runner version older
 than about 30 days after a newer release, so update at least monthly. An update recreates the containers and
 cancels running jobs: check `busy` in the runner list first. Let the machine install its security updates
@@ -281,7 +282,9 @@ docker run --rm --user runner --entrypoint /smoke-desktop.sh \
 **In the workflows**:
 
 - The reusable workflows only pick a self-hosted runner for trusted events and fall back to `ubuntu-latest`
-  otherwise; `e2e.yml` skips the job instead:
+  otherwise; `e2e.yml` skips the job instead. The rule lives in one place,
+  [`route.yml`](../.github/workflows/route.yml), which every job on these runners takes its `runs-on` from (also
+  tavrn-web's desktop jobs and tavrn-js' bot job):
   ```yaml
   github.event_name != 'pull_request_target' && github.actor != 'dependabot[bot]' &&
   (github.event_name != 'pull_request' ||

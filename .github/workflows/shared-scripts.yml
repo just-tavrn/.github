@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Reusable check that the caller's copies of the shared scripts (check-spdx.sh, publish-check.sh, github-labels.sh,
+# check-js-licenses.mjs; docs/GITHUB.md "Shared scripts") are identical to the source in this repository's main branch,
+# apart from their SPDX line. A difference fails with the diff and the fix (scripts/sync-shared.sh <checkout>).
+#
+# Caller:
+#   jobs:
+#     shared-scripts:
+#       if: ${{ vars.CI_ENABLED == 'true' }}
+#       uses: just-tavrn/.github/.github/workflows/shared-scripts.yml@main
+name: Shared scripts (reusable)
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  shared-scripts:
+    name: Shared scripts in sync
+    if: ${{ vars.CI_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: repository
+          sparse-checkout: scripts
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: just-tavrn/.github
+          ref: main
+          path: source
+          sparse-checkout: scripts
+          persist-credentials: false
+      - name: Compare with the source
+        run: bash source/scripts/check-shared.sh repository
