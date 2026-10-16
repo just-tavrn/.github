@@ -1,0 +1,65 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Retention of the organization's container images on ghcr.io (docs/GITHUB.md "Container images"): deletes the
+# `sha-*` versions (one per push to main) older than the cut-off and the orphaned untagged versions older than it;
+# keeps every release tag (`v*`, `0.*`, …) and `edge`. The action protects the children of multi-architecture images
+# that stay (the per-platform manifests and attestations of a kept tag are never deleted), which a plain "delete
+# untagged" would break.
+#
+# One workflow for all images, here in the organization's repository, so that nothing runs in the image
+# repositories: the job token of this repository cannot touch their packages, so it uses the secret
+# GHCR_RETENTION_PAT (a classic personal access token of an organization owner with the scopes read:packages and
+# delete:packages, nothing else; renew it yearly). By hand it runs as a dry run unless told otherwise.
+name: Container image retention
+
+on:
+  schedule:
+    - cron: "17 4 * * 1" # Mondays 04:17 UTC
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Only list what would be deleted
+        type: boolean
+        default: true
+      cut-off:
+        description: Versions younger than this stay (humantime, e.g. 14d, 2w 3d)
+        type: string
+        default: "14d"
+
+permissions:
+  contents: read
+
+env:
+  IMAGES: "tavrn-node tavrn-website tavrn-bot-platform"
+  CUT_OFF: ${{ inputs.cut-off || '14d' }}
+  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run || false }}
+
+jobs:
+  retention:
+    name: Retention
+    if: ${{ vars.CI_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # `sha-*` tags: one per push to main; the release tags and `edge` never match.
+      - name: Old sha-* versions
+        uses: snok/container-retention-policy@d3bdcf5ce9b05f685154e4a16c39233b245e3d53 # v3.1.0
+        with:
+          account: just-tavrn
+          token: ${{ secrets.GHCR_RETENTION_PAT }}
+          image-names: ${{ env.IMAGES }}
+          image-tags: "sha-*"
+          tag-selection: tagged
+          cut-off: ${{ env.CUT_OFF }}
+          dry-run: ${{ env.DRY_RUN }}
+      # Untagged versions: what a deleted tag left behind. The children of the kept tags are untagged too; the action
+      # recognises and keeps them.
+      - name: Orphaned untagged versions
+        uses: snok/container-retention-policy@d3bdcf5ce9b05f685154e4a16c39233b245e3d53 # v3.1.0
+        with:
+          account: just-tavrn
+          token: ${{ secrets.GHCR_RETENTION_PAT }}
+          image-names: ${{ env.IMAGES }}
+          tag-selection: untagged
+          cut-off: ${{ env.CUT_OFF }}
+          dry-run: ${{ env.DRY_RUN }}
