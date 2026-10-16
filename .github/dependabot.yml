@@ -13,6 +13,10 @@ updates:
     directory: /runner
     schedule:
       interval: weekly
+    ignore:
+      # livekit-server follows tavrn-node's pin (justfile, ci.yml, deploy/Dockerfile, checked by its
+      # scripts/check-tool-pins.sh); the two repositories are bumped together by hand.
+      - dependency-name: livekit/livekit-server
   - package-ecosystem: docker-compose
     directory: /runner
     schedule:
