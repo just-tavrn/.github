@@ -29,17 +29,17 @@ on:
 permissions:
   contents: read
 
-env:
-  IMAGES: "tavrn-node tavrn-website tavrn-bot-platform"
-  CUT_OFF: ${{ inputs.cut-off || '14d' }}
-  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run || false }}
-
 jobs:
   retention:
     name: Retention
     if: ${{ vars.CI_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      IMAGES: "tavrn-node tavrn-website tavrn-bot-platform"
+      # The schedule runs for real; by hand the dry run is the default.
+      CUT_OFF: ${{ inputs.cut-off || '14d' }}
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run || false }}
     steps:
       # `sha-*` tags: one per push to main; the release tags and `edge` never match.
       - name: Old sha-* versions
