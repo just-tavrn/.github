@@ -183,6 +183,17 @@ package (organization → **Packages** → `tavrn-node` → **Package settings**
 add `tavrn-web` with **Read** (the e2e workflow pulls `tavrn-node:edge` with its own job token and fails with
 "denied" until then), and keep the visibility **Private** until the release; then switch it to **Public**.
 
+Retention: every push to `main` leaves a `sha-*` version (its multi-architecture children stay as untagged
+versions). `ghcr-retention.yml` of this repository (weekly on Monday 04:17 UTC, and by hand as a dry run by
+default) deletes the `sha-*` versions and the orphaned untagged versions of `tavrn-node`, `tavrn-website` and
+`tavrn-bot-platform` older than 14 days and keeps every release tag and `edge`; the action protects the children of
+kept multi-architecture images. It runs here, so nothing runs in the image repositories; the job token of this
+repository cannot touch their packages, so it needs the secret `GHCR_RETENTION_PAT`: a classic personal access
+token of an organization owner with the scopes `read:packages` and `delete:packages` only, renewed yearly
+(`gh secret set GHCR_RETENTION_PAT -R just-tavrn/.github`). Release tags themselves are never deleted (the tag ruleset forbids it);
+old pre-releases of `tavrn-web` and `tavrn-node` are deleted by hand (`gh release delete`, keeping the tag) once
+the installers are no longer referenced.
+
 ## 4. Variables: switching CI on
 
 Every workflow job checks the variable `CI_ENABLED`; nothing runs on GitHub while it is unset. Per
