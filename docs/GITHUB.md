@@ -44,10 +44,12 @@ Organization **Settings** → **Actions** → **General**:
      dtolnay/rust-toolchain@*,
      Swatinem/rust-cache@*,
      pnpm/action-setup@*,
-     taiki-e/install-action@*
+     taiki-e/install-action@*,
+     snok/container-retention-policy@*
      ```
    Actions and reusable workflows from `just-tavrn` repositories are always allowed by this policy.
-   (`taiki-e/install-action` installs cargo-deny and tauri-driver in tavrn-web's GitHub-hosted desktop builds.)
+   (`taiki-e/install-action` installs cargo-deny and tauri-driver in tavrn-web's GitHub-hosted desktop builds;
+   `snok/container-retention-policy` is the image retention of this repository, "Container images" below.)
    Tick **Require actions to be pinned to a full-length commit SHA** as well once every workflow pins its
    actions. The organization's reusable workflows are not actions: CI callers use them by branch (`@main`),
    release paths by commit (see "Reusable workflows in release paths" below).
