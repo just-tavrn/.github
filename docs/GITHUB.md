@@ -131,7 +131,7 @@ Put a renewal reminder in your calendar before the expiry date.
 
 - **Token name**: `just-tavrn CLA signatures`; **Resource owner**: `just-tavrn`; **Expiration**: at most one year.
 - **Repository access**: **Only select repositories** → `just-tavrn/cla-signatures`.
-- **Repository permissions**: **Contents: Read and write** (the bot commits `signatures/version1/cla.json`);
+- **Repository permissions**: **Contents: Read and write** (the bot commits `signatures/version2/cla.json`);
   **Metadata: Read-only** (added automatically). Nothing else, no organization or account permissions.
 - The comments, the commit status and the re-run of the check on the pull request use the calling
   workflow's own `GITHUB_TOKEN` (`pull-requests: write`, `statuses: write`, `actions: write` in the caller),
@@ -285,3 +285,25 @@ Set when the repositories were created (`gh api -X PATCH repos/just-tavrn/<repo>
 |---|---|
 | `.github` | private; default branch `main`; issues on; Discussions on (to be switched off, step 6); wiki off; projects off; squash merge only (pull-request title and description as the commit); delete branch on merge; Actions access: organization; default workflow token read-only; labels from `scripts/github-labels.sh` |
 | `cla-signatures` | private; default branch `main`; issues off; wiki off; projects off; squash merge only; delete branch on merge; Actions disabled |
+
+## CLA version 2 rollout
+
+Merge the private signature repository preparation and publish the public agreement before switching the
+reusable CLA workflow. Seed `signatures/version2/cla.json` with `{"signedContributors": []}`: the pinned
+v2.6.1 action compares missing-file errors to the string `"404"`, so its automatic initialization can fail.
+See the [pinned source](https://github.com/contributor-assistant/github-action/blob/ca4a40a7d1004f18d9960b404b97e5f30a505a08/src/setupClaCheck.ts).
+Version 2 lives in `agreements/cla-v2.md`; never edit that versioned text after signatures exist.
+`CLA.md` is an identical readable entry point. Material changes require a new document, signature directory
+and explicit signing sentence. Version 1 had no external signatures when version 2 was prepared; do not
+copy signatures between versions. All public repositories, including the website, need their own CLA caller.
+
+Keep `CI_ENABLED=true`, configure `CLA_PAT`, and require `cla / Contributor license agreement` in main's
+ruleset. The action fails its workflow job for unsigned contributors; it does not emit a separate
+`CLA Assistant` commit status. Verify with a non-allowlisted contributor: unsigned PR blocked; version 2
+comment accepted; updated PR accepted; signature recognized in another repo. No repository settings or
+secrets are changed merely by editing these files. Check the generated rulesets with `--dry-run` before
+applying them, and confirm the job name against an actual workflow run.
+
+The controller's identity and private contact are linked through the project imprint. Publish the website's
+CLA privacy section before inviting signatures, and ensure the runtime imprint/contact values are correct.
+Check the live imprint and privacy URLs during rollout; local files cannot establish their deployed content.

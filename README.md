@@ -64,3 +64,5 @@ The same run in [checks.yml](.github/workflows/checks.yml), together with gitlea
 
 Documents CC-BY-4.0, workflows and scripts Apache-2.0; see [LICENSE.md](LICENSE.md). Contributions follow
 [CONTRIBUTING.md](CONTRIBUTING.md) and the [CLA](CLA.md).
+
+Project stewardship and commercial hosting are described in [GOVERNANCE.md](GOVERNANCE.md).

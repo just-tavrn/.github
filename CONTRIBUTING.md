@@ -33,17 +33,16 @@ Please read the [code of conduct](CODE_OF_CONDUCT.md) first; security issues go 
 
 ## Contributor license agreement
 
-Contributions are accepted under the [contributor license agreement](CLA.md) (CLA). You keep the copyright of
-your work; the agreement lets the project offer additional licenses next to the open-source ones.
+Contributions are accepted under the [contributor license agreement](CLA.md) (CLA), version 2.
+You keep your copyright and contribute under the existing license of the files you change. The agreement
+provides no additional relicensing rights or copyleft exceptions to the maintainer or a future company.
 
-- A **CLA bot** asks you to sign on your **first pull request**: you reply with one comment
-  (`I have read the CLA Document and I hereby sign the CLA`). The signature covers all your contributions to
-  all tavrn repositories; you sign once.
-- A **DCO `Signed-off-by` line is not required.**
-- **Our promise ("no rug pull")**: everything published under an OSI-approved license stays available under
-  that license, and the source code of tavrn keeps being published under the open-source licenses of its
-  repositories. The rights granted with the CLA are used to offer *additional* licenses or terms, never to
-  take the open-source versions away. The full text is in [CLA.md](CLA.md#our-promise-no-rug-pull).
+- The CLA bot asks you to sign version 2 once, covering all public tavrn repositories. Reply exactly:
+  `I have read the tavrn CLA version 2 and I hereby sign it.`
+- A DCO `Signed-off-by` line is not required.
+- Official development stays public in just-tavrn; paid hosting by the project or independent providers
+  is welcome. See the [openness promise](CLA.md#our-promise-no-rug-pull) and [governance](GOVERNANCE.md).
+- Signature data and retention are described in [CLA.md](CLA.md#signing-and-records).
 
 ## Licenses of the code you touch
 
@@ -107,4 +106,4 @@ specification and propose the change to `openapi.json` in tavrn-protocol.
 - Do not commit secrets, local data (databases, `data-dev/`), `.env` files, key files, test output or editor
   and agent settings; the `.gitignore` of each repository covers the usual ones.
 - If you include material you did not write, say so in the pull request and name its origin and license
-  (CLA, section 5).
+  (CLA, section 3).
