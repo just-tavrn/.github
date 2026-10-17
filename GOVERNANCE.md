@@ -4,8 +4,8 @@
 
 [tavrn](https://github.com/just-tavrn/tavrn) is the entry point to the official project. Its source and
 release history remain public in the just-tavrn GitHub organization under the existing project licenses.
-The maintainer, [babatonga](https://github.com/babatonga), currently makes final scope, release and access
-decisions. Contributors retain copyright. There is no independent foundation or elected governing body.
+The maintainer identified in the [project imprint](https://tavrn.org/legal/imprint) currently makes final
+scope, release and access decisions. Contributors retain copyright. There is no independent foundation or elected governing body.
 
 Propose substantial changes in an issue or discussion before implementation. Protocol changes start in
 tavrn-protocol; implementations follow. Changes go through pull requests and the repository checks.
