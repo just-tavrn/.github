@@ -49,5 +49,5 @@ CI workflows.
 ## Trademark
 
 The code is open source; the name "tavrn" and the logo are not covered by the code licenses. Running your
-own node with the name and logo is fine; distributed forks and hosting businesses under the name need
-permission. See the [trademark policy](https://github.com/just-tavrn/.github/blob/main/TRADEMARK.md).
+own node with the name and logo is fine. Independent providers may advertise and sell tavrn hosting under
+their own business identity without permission; they must not imply official affiliation. See the [trademark policy](https://github.com/just-tavrn/.github/blob/main/TRADEMARK.md).

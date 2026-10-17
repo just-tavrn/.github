@@ -36,7 +36,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 if [ ${#repos[@]} -eq 0 ]; then
-  repos=(.github tavrn tavrn-protocol tavrn-crypto tavrn-js tavrn-node tavrn-web)
+  repos=(.github tavrn tavrn-protocol tavrn-crypto tavrn-js tavrn-node tavrn-web tavrn-website tavrn-bot-platform)
 fi
 
 # The required status checks per repository: the check names its pull requests actually report (CI jobs,
@@ -52,7 +52,7 @@ review="Dependency review"
 contexts() {
   case "$1" in
     .github)
-      printf '%s\n' "Lint (actionlint, shellcheck, SPDX)" "Publication hygiene" "$gitleaks" ;;
+      printf '%s\n' "Lint (actionlint, shellcheck, SPDX)" "Publication hygiene" "$gitleaks" "$cla" ;;
     tavrn)
       printf '%s\n' "Markdown lint, links, SPDX headers, shellcheck" "Publication hygiene" "$gitleaks" "$cla" ;;
     tavrn-protocol)
@@ -64,6 +64,10 @@ contexts() {
     tavrn-node)
       printf '%s\n' "Rust / Rust (fmt, clippy, test)" "SPDX headers, publication hygiene, perf report" "$gitleaks" "$review" "$cla" ;;
     tavrn-web)
+      printf '%s\n' "JavaScript / JavaScript (install, typecheck, test)" "Publication hygiene" "$gitleaks" "$review" "$cla" ;;
+    tavrn-website)
+      printf '%s\n' "JavaScript / JavaScript (install, typecheck, test)" "End-to-end (Chromium, Android emulation)" "Caddyfile" "Publication hygiene" "$gitleaks" "$cla" ;;
+    tavrn-bot-platform)
       printf '%s\n' "JavaScript / JavaScript (install, typecheck, test)" "Publication hygiene" "$gitleaks" "$review" "$cla" ;;
     *) echo "unknown repository $1" >&2; exit 1 ;;
   esac
