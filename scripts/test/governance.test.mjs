@@ -17,6 +17,11 @@ test('every public repository requires the CLA job in its main ruleset', () => {
   for (const [, repo, json] of sections) {
     const checks = JSON.parse(json).rules.find(rule => rule.type === 'required_status_checks').parameters.required_status_checks;
     assert.ok(checks.some(check => check.context === 'cla / Contributor license agreement' && check.integration_id === 15368), `${repo}: CLA job must gate merges`);
+    if (['tavrn-website', 'tavrn-bot-platform'].includes(repo)) {
+      for (const name of ['What changed', 'Change filter and SPDX']) {
+        assert.ok(checks.some(check => check.context === name), `${repo}: ${name} must gate merges`);
+      }
+    }
     assert.ok(!checks.some(check => check.context === 'CLA Assistant'), `${repo}: do not require a nonexistent status`);
   }
 });

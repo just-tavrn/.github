@@ -66,9 +66,9 @@ contexts() {
     tavrn-web)
       printf '%s\n' "JavaScript / JavaScript (install, typecheck, test)" "Publication hygiene" "$gitleaks" "$review" "$cla" ;;
     tavrn-website)
-      printf '%s\n' "JavaScript / JavaScript (install, typecheck, test)" "End-to-end (Chromium, Android emulation)" "Caddyfile" "Publication hygiene" "$gitleaks" "$cla" ;;
+      printf '%s\n' "JavaScript / JavaScript (install, typecheck, test)" "End-to-end (Chromium, Android emulation)" "Caddyfile" "What changed" "Change filter and SPDX" "Publication hygiene" "$gitleaks" "$cla" ;;
     tavrn-bot-platform)
-      printf '%s\n' "JavaScript / JavaScript (install, typecheck, test)" "Publication hygiene" "$gitleaks" "$review" "$cla" ;;
+      printf '%s\n' "JavaScript / JavaScript (install, typecheck, test)" "What changed" "Change filter and SPDX" "Publication hygiene" "$gitleaks" "$review" "$cla" ;;
     *) echo "unknown repository $1" >&2; exit 1 ;;
   esac
 }
