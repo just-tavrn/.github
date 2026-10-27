@@ -6,6 +6,14 @@
 # manual run that fails opens an issue "RustSec advisories" in the calling repository (unless one is open already),
 # so a new advisory is tracked instead of turning unrelated pull requests red; a pull request run just fails.
 #
+# Temporary exceptions expire: an [advisories] ignore entry of a deny.toml whose reason contains "expires YYYY-MM-DD"
+# fails the run once that date (UTC) is past, which opens the same issue, so a temporary exception is reviewed again
+# instead of staying forever. A date that is no valid YYYY-MM-DD fails as well; entries without "expires" are not
+# checked. The check is scripts/check-advisory-expiry.py of this repository's main branch.
+#   ignore = [
+#       { id = "RUSTSEC-2026-0387", reason = "crypto-bigint 0.5.5 only: ...; tracking <issue URL>; expires 2026-12-26" },
+#   ]
+#
 # Caller (tavrn-node, .github/workflows/advisories.yml):
 #   on:
 #     schedule:
@@ -76,11 +84,19 @@ jobs:
       - name: Submodules
         if: ${{ inputs.submodules != '' && inputs.submodules != 'false' }}
         run: git submodule update --init ${{ inputs.submodules == 'recursive' && '--recursive' || '' }}
-      - name: cargo-deny check advisories
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: just-tavrn/.github
+          ref: main
+          path: .tavrn-github
+          sparse-checkout: scripts
+          persist-credentials: false
+      - name: cargo-deny check advisories, expiry of the exceptions
         id: check
         env:
           DENY_VERSION: ${{ inputs.cargo-deny-version }}
           MANIFESTS: ${{ inputs.manifests }}
+          EXPIRY: ${{ github.workspace }}/.tavrn-github/scripts/check-advisory-expiry.py
         run: |
           tmp="$(mktemp -d)"
           name="cargo-deny-${DENY_VERSION}-x86_64-unknown-linux-musl"
@@ -91,15 +107,23 @@ jobs:
           tar -xzf "$tmp/$name.tar.gz" -C "$tmp"
           deny="$tmp/$name/cargo-deny"
           failed=()
+          expired=()
           while IFS= read -r dir; do
             [ -n "${dir//[[:space:]]/}" ] || continue
             echo "::group::$dir"
             (cd "$dir" && "$deny" --log-level error check advisories) || failed+=("$dir")
+            if [ -f "$dir/deny.toml" ]; then
+              python3 -I "$EXPIRY" "$dir/deny.toml" || expired+=("$dir/deny.toml")
+            fi
             echo "::endgroup::"
           done <<< "$MANIFESTS"
-          if [ "${#failed[@]}" -gt 0 ]; then
-            echo "failed=${failed[*]}" >> "$GITHUB_OUTPUT"
-            echo "::error::RustSec advisories in: ${failed[*]}"
+          summary=()
+          [ "${#failed[@]}" -eq 0 ] || summary+=("advisories in ${failed[*]}")
+          [ "${#expired[@]}" -eq 0 ] || summary+=("expired or malformed exceptions in ${expired[*]}")
+          if [ "${#summary[@]}" -gt 0 ]; then
+            message="${summary[0]}${summary[1]:+; ${summary[1]}}"
+            echo "failed=$message" >> "$GITHUB_OUTPUT"
+            echo "::error::RustSec: $message"
             exit 1
           fi
       - name: Track the failure in an issue
@@ -110,7 +134,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           title="RustSec advisories"
-          body="cargo-deny reports advisories in: ${FAILED} (run ${RUN_URL}). Update the affected crates, or record a reviewed exception in deny.toml ([advisories] ignore, with the reason)."
+          body="RustSec check failed: ${FAILED} (run ${RUN_URL}). Update the affected crates, or record a reviewed exception in deny.toml ([advisories] ignore, with the reason; a temporary one with \"expires YYYY-MM-DD\"). An expired exception needs the fix or a renewed review."
           number="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json number,title \
             --jq "map(select(.title == \"$title\")) | .[0].number // empty")"
           if [ -n "$number" ]; then
