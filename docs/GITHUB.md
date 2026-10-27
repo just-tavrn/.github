@@ -81,7 +81,10 @@ has a `timeout-minutes` input (Rust 45, JavaScript 30, image 60, end-to-end 90, 
 holds one of the two heavy runners for GitHub's default of six hours. `rust-ci.yml` checks cargo-deny's bans, licenses
 and sources before the build; the RustSec advisories run in `rust-advisories.yml`, called by a scheduled workflow of
 each Rust repository, which opens an issue "RustSec advisories" when one appears (labels `security` and
-`dependencies`).
+`dependencies`). A temporary exception in `deny.toml` (`[advisories] ignore`) carries `expires YYYY-MM-DD` in its
+reason, next to the tracking issue; once that date (UTC) is past, the scheduled run fails and opens the same issue, so
+the exception is fixed or reviewed again ([`check-advisory-expiry.py`](../scripts/check-advisory-expiry.py); a
+malformed date fails too, an entry without `expires` is not checked).
 
 ### Reusable workflows in release paths
 
