@@ -17,7 +17,7 @@
 # cache and so picks up a new stable release and the distribution's updates.
 
 # Valkey for the cluster tests (TAVRN_TEST_CACHE_URL), one private instance per runner container.
-FROM valkey/valkey:8.1.10@sha256:640c5e62cea04b6d6f2084232651d0cc70362d31f4f805e7be94dbed6855e8f2 AS valkey
+FROM valkey/valkey:9.1.3@sha256:3add1a336a920ea54770a001ab6feb3da5fceea96a40373a3a2cd469b815f0b7 AS valkey
 # livekit-server for the voice tests, the same release the node image ships.
 FROM livekit/livekit-server:v1.13.9@sha256:d0c04791bf63ca8dcea123571827d56ba9504bd57c8d5de60ee03b5408cc3154 AS livekit
 
