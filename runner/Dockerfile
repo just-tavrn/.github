@@ -17,12 +17,12 @@
 # cache and so picks up a new stable release and the distribution's updates.
 
 # Valkey for the cluster tests (TAVRN_TEST_CACHE_URL), one private instance per runner container.
-FROM valkey/valkey:8.1.10@sha256:640c5e62cea04b6d6f2084232651d0cc70362d31f4f805e7be94dbed6855e8f2 AS valkey
+FROM valkey/valkey:9.1.3@sha256:3add1a336a920ea54770a001ab6feb3da5fceea96a40373a3a2cd469b815f0b7 AS valkey
 # livekit-server for the voice tests, the same release the node image ships.
 FROM livekit/livekit-server:v1.13.9@sha256:d0c04791bf63ca8dcea123571827d56ba9504bd57c8d5de60ee03b5408cc3154 AS livekit
 
 # Base image (Dependabot keeps tag and digest current; the runner version is the tag).
-FROM myoung34/github-runner:2.338.0-ubuntu-noble@sha256:2112bde2ee92b7480babfbe3043d0461e322b97ca01e6ac94698895f3dc1f528
+FROM myoung34/github-runner:2.338.2-ubuntu-noble@sha256:23e3a4a1da30de5b462ad0ae13d901288e803a688075c3b9b5bb79b7148c07fa
 
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
